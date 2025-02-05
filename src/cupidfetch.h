@@ -1,8 +1,7 @@
-// Cupidfetch is a system information retrieval tool written in C for Linux systems. It's a beginner-friendly, work-in-progress hobby project aimed at learning and exploring programming concepts.
-
 #ifndef CUPIDFETCH_H
 #define CUPIDFETCH_H
 
+#include "cupidconf.h"  // Use cupidconf instead of inih
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -20,9 +19,6 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-// Inih
-#include <ini.h>
-
 #define MAX_NUM_MODULES 30
 #define CONFIG_PATH_SIZE 256
 #define LINUX_PROC_LINE_SZ 128
@@ -37,10 +33,10 @@ struct CupidConfig {
 };
 
 typedef enum {
-	LogType_INFO = 0,
-	LogType_WARNING = 1,
-	LogType_ERROR = 2,
-	LogType_CRITICAL = 3
+    LogType_INFO = 0,
+    LogType_WARNING = 1,
+    LogType_ERROR = 2,
+    LogType_CRITICAL = 3
 } LogType;
 
 // print.c
@@ -58,7 +54,6 @@ void get_package_count();
 void get_shell();
 void get_terminal();
 void get_desktop_environment();
-/* void get_window_manager(); */
 void get_local_ip();
 void get_available_memory();
 void get_cpu();
@@ -68,8 +63,8 @@ const char* get_home_directory();
 // config.c
 extern struct CupidConfig g_userConfig;
 void init_g_config();
-void create_default_config(const char* config_path, const struct CupidConfig* default_config);
-int cupid_ini_handler(void* user, const char* section, const char* name, const char* value);
+// New function to load configuration using cupidconf:
+void load_config_file(const char* config_path, struct CupidConfig *config);
 
 // log.c
 void cupid_log(LogType ltp, const char *format, ...);
@@ -79,4 +74,4 @@ extern FILE *g_log;
 const char* detect_linux_distro();
 void epitaph();
 
-#endif
+#endif // CUPIDFETCH_H

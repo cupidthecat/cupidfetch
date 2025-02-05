@@ -121,89 +121,63 @@ void setup_signal_handlers() {
 }
 
 int main() {
-    int parse_result = -69; // Initialize with a default value
-
-    // Initialize configuration
+    // Initialize configuration with defaults.
     init_g_config();
     g_log = NULL;
 
-    // Set up signal handlers, including SIGWINCH
+    // Set up signal handlers.
     setup_signal_handlers();
 
-    if (!isatty(STDIN_FILENO))
-        parse_result = ini_parse_file(stdin, cupid_ini_handler, &g_userConfig);
+    // Set up logging.
     if (!isatty(STDERR_FILENO))
         g_log = stderr;
 
     if (g_log == NULL) {
-        char config_path[CONFIG_PATH_SIZE];
-
-        /*
-         * $XDG_CONFIG_HOME defines the base directory relative to which
-         * user-specific configuration files should be stored. If
-         * $XDG_CONFIG_HOME is either not set or empty, a default equal to
-         * $HOME/.config should be used.
-         *
-         * https://www.freedesktop.org/wiki/Specifications/basedir-spec/
-         */
-
-        char *config = NULL;
-        if ((config = getenv("XDG_CONFIG_HOME"))) {
-            snprintf(config_path, sizeof(config_path), "%s/cupidfetch/log.txt", config);
+        char log_path[CONFIG_PATH_SIZE];
+        char *config_dir = getenv("XDG_CONFIG_HOME");
+        if (config_dir) {
+            snprintf(log_path, sizeof(log_path), "%s/cupidfetch/log.txt", config_dir);
         } else {
             const char* home = get_home_directory();
-            snprintf(config_path, sizeof(config_path), "%s/.config/cupidfetch/log.txt", home);
+            snprintf(log_path, sizeof(log_path), "%s/.config/cupidfetch/log.txt", home);
         }
-
-        g_log = fopen(config_path, "w");
+        g_log = fopen(log_path, "w");
         if (g_log == NULL) {
             g_log = stderr;
-            cupid_log(LogType_ERROR, "Couldn't open config, logging to stderr");
+            cupid_log(LogType_ERROR, "Couldn't open log file, logging to stderr");
         }
     }
 
-    if (parse_result == -69) {
-        char config_path[CONFIG_PATH_SIZE];
-        char *config = NULL;
-        if ((config = getenv("XDG_CONFIG_HOME"))) {
-            snprintf(config_path, sizeof(config_path), "%s/cupidfetch/cupidfetch.ini", config);
-        } else {
-            const char* home = get_home_directory();
-            snprintf(config_path, sizeof(config_path), "%s/.config/cupidfetch/cupidfetch.ini", home);
-        }
-
-        if (access(config_path, F_OK) == -1)
-            cupid_log(LogType_ERROR, "Couldn't open %s", config_path);
-        else
-            parse_result = ini_parse(config_path, cupid_ini_handler, &g_userConfig);
+    // Determine the configuration file path.
+    char config_path[CONFIG_PATH_SIZE];
+    char *config_dir = getenv("XDG_CONFIG_HOME");
+    if (config_dir) {
+        snprintf(config_path, sizeof(config_path), "%s/cupidfetch/cupidfetch.conf", config_dir);
+    } else {
+        const char* home = get_home_directory();
+        snprintf(config_path, sizeof(config_path), "%s/.config/cupidfetch/cupidfetch.conf", home);
+    }
+    if (access(config_path, F_OK) == -1) {
+        cupid_log(LogType_WARNING, "Couldn't open config file: %s. Using default config.", config_path);
+    } else {
+        load_config_file(config_path, &g_userConfig);
     }
 
-    // Log a warning if running with the default config
-    if (parse_result < 0)
-        cupid_log(LogType_WARNING, "Running with default config");
-
-    // Display system information initially
+    // Display system information initially.
     display_fetch();
 
-    // Main loop to handle signals and other events
+    // Main loop.
     while (1) {
-        pause(); // Wait for any signal
+        pause(); // Wait for a signal.
 
         if (resize_flag) {
-            // Clear the screen for a clean redraw
             printf("\033[H\033[J");
-
-            // Recalculate dimensions and refresh the display
             display_fetch();
-
-            // Reset the flag
             resize_flag = 0;
         }
-
-        // Handle other flags or tasks if necessary
     }
 
-    epitaph(); // Cleanup before exiting (though the loop is infinite unless interrupted)
+    epitaph();
     return 0;
 }
 
