@@ -444,14 +444,13 @@ void get_available_storage() {
         return;
     }
 
-    bool first = 1;
-    char mount_point[256];
-    while (fscanf(mount_file, "%255s", mount_point) == 1) {
+    bool first = true;
+    char device[256], mnt_point[256], fs_type[256];
+    while (fscanf(mount_file, "%255s %255s %255s %*s %*d %*d", device, mnt_point, fs_type) == 3) {
         struct statvfs stat;
 
-        if (statvfs(mount_point, &stat) != 0) {
-            // Skip entries where storage information cannot be retrieved
-	    cupid_log(LogType_INFO, "nothing for %s", mount_point);
+        if (statvfs(mnt_point, &stat) != 0) {
+            cupid_log(LogType_INFO, "nothing for %s", mnt_point);
             continue;
         }
 
@@ -461,15 +460,14 @@ void get_available_storage() {
         if (total == 0) continue;
 
         print_info(
-                first ? "Storage Information" : "",
-                "%s: %lu %s / %lu %s",
-                20, 30,
-                mount_point, available, g_userConfig.storage_unit,
-                total, g_userConfig.storage_unit
+            first ? "Storage Information" : "",
+            "%s: %lu %s / %lu %s",
+            20, 30,
+            mnt_point, available, g_userConfig.storage_unit,
+            total, g_userConfig.storage_unit
         );
-        first = 0;
+        first = false;
     }
-
     fclose(mount_file);
 }
 
