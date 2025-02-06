@@ -24,7 +24,7 @@ const char* detect_linux_distro() {
     const char* distro = "Unknown";
 
     while (fgets(line, sizeof(line), os_release)) {
-        if (strstr(line, "ID=") != NULL) {
+        if (strncmp(line, "ID=", 3) == 0) {
             char* distroId = strchr(line, '=') + 1;
             size_t len = strlen(distroId);
 
