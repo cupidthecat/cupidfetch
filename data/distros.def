@@ -21,7 +21,6 @@ DISTRO("peppermint", "Peppermint OS"  , "dpkg -l | tail -n+6 | wc -l")
 // DISTRO("Raspberry Pi OS", "dpkg -l | tail -n+6 | wc -l")
 
 /* pacman */
-DISTRO("arch"       , "Arch Linux" , "pacman -Q | wc -l")
 DISTRO("manjaro"    , "Manjaro"    , "pacman -Q | wc -l")
 DISTRO("artix"      , "Artix Linux", "pacman -Q | wc -l")
 DISTRO("endeavouros", "EndeavourOS", "pacman -Q | wc -l")
@@ -55,4 +54,6 @@ DISTRO("solus"    , "Solus"       , "eopkg list-installed | wc -l")
 // {"redhat", "Red Hat"},
 
 /* please don't remove this */
-#undef DISTRO
+
+/* auto added */
+DISTRO("arch", "Arch", "pacman -Q | wc -l")

@@ -13,10 +13,16 @@ void get_hostname() {
 
 void get_username() {
     char* username = getlogin();
+    if (username == NULL) {
+        // Fallback: use getpwuid with effective UID
+        struct passwd *pw = getpwuid(geteuid());
+        if (pw != NULL)
+            username = pw->pw_name;
+    }
     if (username != NULL)
         print_info("Username", username, 20, 30);
     else
-	cupid_log(LogType_ERROR, "couldn't get username");
+        cupid_log(LogType_ERROR, "couldn't get username");
 }
 
 void get_linux_kernel() {
@@ -271,12 +277,6 @@ void get_desktop_environment() {
     }
 
     closedir(dir);
-
-    // This can just be removed ig idk
-    if (entry == NULL) {
-        cupid_log(LogType_INFO, "Failed to read /proc directory");
-        //print_info("DE", "Unknown", 20, 30);
-    }
 }
 
 // haha got ur ip
