@@ -3,16 +3,16 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h> // for mkdir
-#include <unistd.h> // for pause()
-#include <stdio.h> // for printf
-#include <stdlib.h> // for exit
+#include <unistd.h>   // for pause()
+#include <stdio.h>    // for printf
+#include <stdlib.h>   // for exit
 #include <limits.h>   // For PATH_MAX
 #include <libgen.h>   // For dirname()
 #include <string.h>
 #include <errno.h>    // for errno, strerror
 #include <stdbool.h>  // for bool type
-#include <regex.h>  // or just do manual parsing
-
+#include <regex.h>    // or just do manual parsing
+#include <pwd.h> 
 // Local Includes
 #include "cupidfetch.h"
 
@@ -351,10 +351,16 @@ void display_fetch() {
 	char *username = getlogin();
 
 	if (username == NULL) {
-		cupid_log(LogType_ERROR, "couldn't get username");
-		username = "";
+	    // Fallback: try to retrieve the username using getpwuid
+	    struct passwd *pw = getpwuid(geteuid());
+	    if (pw != NULL) {
+	        username = pw->pw_name;
+	    } else {
+	        cupid_log(LogType_ERROR, "couldn't get username");
+	        username = "";
+	    }
 	}
-
+	
 	if (gethostname(hostname, sizeof(hostname)) != 0) {
 		cupid_log(LogType_ERROR, "couldn't get hostname");
 		hostname[0] = '\0';
