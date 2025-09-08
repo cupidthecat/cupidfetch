@@ -189,6 +189,7 @@ Everyone is welcome—beginner or expert!
 - [ ] Arch Linux AUR package
 - [ ] Per-module config sections
 - [ ] Implement dynamic WM & DE detection (remove hard-coded checks)
+- [ ] Wayland
 - [X] Auto-detect and update distros in `distros.def`
 - [X] Signal Handling for Window Resize (`SIGWINCH`)
 - [X] Improve distro detection
