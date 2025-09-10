@@ -2,6 +2,13 @@
 // -----------------------
 #include <sys/statvfs.h>
 #include "cupidfetch.h"
+#define _GNU_SOURCE
+
+
+#if defined(HAVE_X11) || defined(USE_X11)
+#  include <X11/Xlib.h>
+#  include <X11/Xatom.h>
+#endif
 
 void get_hostname() {
     char hostname[256];
@@ -57,9 +64,81 @@ void get_uptime() {
     print_info("Uptime", "%d days, %02d:%02d", 20, 30, days, hours, minutes);
 }
 
+/* --- /etc/os-release helpers --- */
+
+static void trim_quotes(char *s) {
+    if (!s) return;
+    size_t n = strlen(s);
+    if (n >= 2 && ((s[0] == '"' && s[n-1] == '"') || (s[0] == '\'' && s[n-1] == '\''))) {
+        /* strip surrounding quotes */
+        memmove(s, s + 1, n - 2);
+        s[n - 2] = '\0';
+    }
+}
+
+static int os_release_get(const char *key, char *out, size_t outsz) {
+    if (!key || !out || outsz == 0) return 0;
+    FILE *f = fopen("/etc/os-release", "r");
+    if (!f) return 0;
+
+    char line[512];
+    int found = 0;
+    size_t klen = strlen(key);
+
+    while (fgets(line, sizeof line, f)) {
+        /* Lines are like KEY=VALUE (VALUE may be quoted) */
+        if (strncmp(line, key, klen) == 0 && line[klen] == '=') {
+            char *val = line + klen + 1;
+            /* Trim trailing newline */
+            val[strcspn(val, "\r\n")] = '\0';
+            trim_quotes(val);
+            /* Copy out */
+            strncpy(out, val, outsz - 1);
+            out[outsz - 1] = '\0';
+            found = 1;
+            break;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
 void get_distro() {
-    const char *distro = detect_linux_distro();
-    print_info("Distro", distro, 20, 30);
+    char pretty[256] = {0};
+    char name[128] = {0};
+    char ver[128] = {0};
+    char codename[128] = {0};
+    char out[384] = {0};
+
+    /* 1) Best: PRETTY_NAME straight from os-release */
+    if (os_release_get("PRETTY_NAME", pretty, sizeof(pretty)) && pretty[0]) {
+        print_info("Distro", "%s", 20, 30, pretty);
+        return;
+    }
+
+    /* 2) Assemble NAME + VERSION_ID (+ codename) */
+    os_release_get("NAME", name, sizeof(name));                 /* e.g., Ubuntu, Fedora, Arch Linux */
+    os_release_get("VERSION_ID", ver, sizeof(ver));             /* e.g., 22.04, 40, rolling */
+    os_release_get("VERSION_CODENAME", codename, sizeof(codename)); /* e.g., jammy */
+
+    if (name[0]) {
+        if (ver[0] && codename[0]) {
+            /* "Ubuntu 22.04 (jammy)" */
+            snprintf(out, sizeof(out), "%s %s (%s)", name, ver, codename);
+        } else if (ver[0]) {
+            /* "Ubuntu 22.04" */
+            snprintf(out, sizeof(out), "%s %s", name, ver);
+        } else {
+            /* "Ubuntu" */
+            snprintf(out, sizeof(out), "%s", name);
+        }
+        print_info("Distro", "%s", 20, 30, out);
+        return;
+    }
+
+    /* 3) Fallback: keep current behavior (capitalized ID or known longname) */
+    const char *fallback = detect_linux_distro();
+    print_info("Distro", "%s", 20, 30, fallback);
 }
 
 void get_package_count() {
@@ -130,153 +209,273 @@ void get_terminal() {
     print_info("Terminal", "%s", 20, 30, term_program);
 }
 
-// FIXME: dead code
-/*
 void get_window_manager() {
-    // Only get window managers, not desktop environments
-    // Same logic as get_desktop_environment() but only looking or WMs
-
-    DIR *dir;
-    struct dirent *entry;
-
-    dir = opendir("/proc");
-    if (dir == NULL) return;
-
-    int wmFound = 0;  // Flag to indicate if a window manager has been found
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_DIR) {
-            char path[270];
-            snprintf(path, sizeof(path), "/proc/%s/cmdline", entry->d_name);
-
-            FILE *cmdlineFile = fopen(path, "r");
-            if (cmdlineFile != NULL) {
-                char cmdline[270];
-                if (fgets(cmdline, sizeof(cmdline), cmdlineFile) != NULL) {
-                    // FIXME: hardcoded names
-
-                    // Example: Check if "fvwm" is in the cmdline
-                    if (strstr(cmdline, "fvwm") != NULL) {
-                        print_info("WM", "FVWM", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                    if (strstr(cmdline, "i3") != NULL) {
-                        print_info("WM", "i3", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                    if (strstr(cmdline, "awesome") != NULL) {
-                        print_info("WM", "Awesome", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                    if (strstr(cmdline, "bspwm") != NULL) {
-                        print_info("WM", "bspwm", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                    if (strstr(cmdline, "dwm") != NULL) {
-                        print_info("WM", "dwm", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                    if (strstr(cmdline, "hyprland") != NULL) {
-                        print_info("WM", "hyprland", 20, 30);
-                        wmFound = 1;
-                        break;
-                    }
-
-                }
-
-                fclose(cmdlineFile);
-            }
-        }
-    }
-
-    closedir(dir);
-
-    // If no desktop environment is detected, print nothing since we dont want to display anything
-    if (!wmFound) {
-        //print_info("WM", "Unknown", 20, 30);
+    char wm_name[128];
+    if (detect_window_manager(wm_name, sizeof(wm_name))) {
+        print_info("Window Manager", "%s", 20, 30, wm_name);
+    } else {
+        cupid_log(LogType_ERROR, "couldn't detect window manager");
     }
 }
-*/
 
-void get_desktop_environment() {
-    const char* xdgDesktop = getenv("XDG_CURRENT_DESKTOP");
-    if (xdgDesktop != NULL && strlen(xdgDesktop) > 0) {
-        print_info("DE", xdgDesktop, 20, 30);
-        return; // Successfully retrieved desktop environment
+/* --- Small utils --- */
+
+static inline const char *getenv_nc(const char *k) {
+    const char *v = getenv(k);
+    return (v && *v) ? v : NULL;
+}
+
+static int str_contains_ci(const char *hay, const char *needle) {
+    if (!hay || !needle) return 0;
+    size_t nlen = strlen(needle);
+    for (const char *p = hay; *p; ++p) {
+        if (strncasecmp(p, needle, nlen) == 0) return 1;
+    }
+    return 0;
+}
+
+static void set_out(char *buf, size_t buflen, const char *s) {
+    if (!buf || buflen == 0) return;
+    if (!s) { buf[0] = '\0'; return; }
+    strncpy(buf, s, buflen - 1);
+    buf[buflen - 1] = '\0';
+}
+
+/* --- /proc process lookup (no root required) --- */
+
+static int proc_has_process_named(const char *target) {
+    if (!target || !*target) return 0;
+    DIR *d = opendir("/proc");
+    if (!d) return 0;
+
+    struct dirent *de;
+    char path[256];
+    int found = 0;
+
+    while ((de = readdir(d)) != NULL) {
+        if (!isdigit((unsigned char)de->d_name[0])) continue;
+
+        snprintf(path, sizeof(path), "/proc/%s/comm", de->d_name);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+
+        char comm[256] = {0};
+        if (fgets(comm, sizeof(comm), f)) {
+            // Trim newline
+            size_t len = strlen(comm);
+            if (len && comm[len - 1] == '\n') comm[len - 1] = '\0';
+            if (strcmp(comm, target) == 0) { found = 1; fclose(f); break; }
+        }
+        fclose(f);
+    }
+    closedir(d);
+    return found;
+}
+
+/* Given a prioritized list, return the first process name that exists. */
+static int find_first_running(const char **names, size_t count, char *out, size_t outsz) {
+    for (size_t i = 0; i < count; ++i) {
+        if (proc_has_process_named(names[i])) {
+            set_out(out, outsz, names[i]);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* --- Session kind detection --- */
+
+enum session_kind detect_session_kind(void) {
+    const char *xdg_type = getenv_nc("XDG_SESSION_TYPE");
+    if (xdg_type) {
+        if (!strcasecmp(xdg_type, "x11"))     return SESSION_X11;
+        if (!strcasecmp(xdg_type, "wayland")) return SESSION_WAYLAND;
+    }
+    /* Heuristics if XDG_SESSION_TYPE isn’t set */
+    if (getenv_nc("WAYLAND_DISPLAY")) return SESSION_WAYLAND;
+    if (getenv_nc("DISPLAY"))         return SESSION_X11;
+    return SESSION_UNKNOWN;
+}
+
+/* --- X11 (EWMH) path --- */
+#if defined(HAVE_X11) || defined(USE_X11)
+static int get_wm_name_x11(char *buf, size_t buflen) {
+    const char *display_name = getenv_nc("DISPLAY");
+    if (!display_name) return 0;
+
+    Display *dpy = XOpenDisplay(NULL);
+    if (!dpy) return 0;
+
+    Atom NET_SUPPORTING_WM_CHECK = XInternAtom(dpy, "_NET_SUPPORTING_WM_CHECK", True);
+    if (NET_SUPPORTING_WM_CHECK == None) { XCloseDisplay(dpy); return 0; }
+
+    Atom NET_WM_NAME = XInternAtom(dpy, "_NET_WM_NAME", True);
+    Atom UTF8_STRING = XInternAtom(dpy, "UTF8_STRING", True);
+
+    Window root = DefaultRootWindow(dpy);
+    Atom actual_type; int actual_format; unsigned long nitems, bytes_after;
+    unsigned char *prop = NULL;
+
+    if (XGetWindowProperty(dpy, root, NET_SUPPORTING_WM_CHECK, 0, 32, False, AnyPropertyType,
+                           &actual_type, &actual_format, &nitems, &bytes_after, &prop) != Success) {
+        XCloseDisplay(dpy);
+        return 0;
     }
 
-    // If $XDG_CURRENT_DESKTOP is empty or not found, try checking processes
-    // NOTE: hardcoded :(
-
-    DIR *dir;
-    struct dirent *entry;
-
-    dir = opendir("/proc");
-    if (dir == NULL) {
-        cupid_log(LogType_ERROR, "Failed to open /proc directory");
-        return;
+    if (!prop || actual_type == None || actual_format == 0 || nitems < 1) {
+        if (prop) XFree(prop);
+        XCloseDisplay(dpy);
+        return 0;
     }
 
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_DIR) {
-            char path[270];
-            snprintf(path, sizeof(path), "/proc/%s/cmdline", entry->d_name);
+    Window wm_win = *(Window*)prop;
+    XFree(prop);
+    prop = NULL;
 
-            FILE *cmdlineFile = fopen(path, "r");
-            if (cmdlineFile != NULL) {
-                char cmdline[270];
-                if (fgets(cmdline, sizeof(cmdline), cmdlineFile) != NULL) {
+    /* Per EWMH, the wm_win should also have _NET_SUPPORTING_WM_CHECK pointing to itself. Optional check. */
+    if (XGetWindowProperty(dpy, wm_win, NET_SUPPORTING_WM_CHECK, 0, 32, False, AnyPropertyType,
+                           &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success) {
+        if (prop) XFree(prop);
+        prop = NULL;
+    }
 
-                    // Example: Check if "gnome-shell" is in the cmdline
-                    if (strstr(cmdline, "gnome-shell") != NULL) {
-                        print_info("DE", "GNOME", 20, 30);
-                        break;
-                    }
+    /* Try _NET_WM_NAME (UTF8_STRING) on wm_win */
+    int ok = 0;
+    if (NET_WM_NAME != None && UTF8_STRING != None) {
+        if (XGetWindowProperty(dpy, wm_win, NET_WM_NAME, 0, (~0L), False, UTF8_STRING,
+                               &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success) {
+            if (prop && actual_type == UTF8_STRING && actual_format == 8 && nitems > 0) {
+                set_out(buf, buflen, (const char*)prop);
+                ok = 1;
+            }
+            if (prop) { XFree(prop); prop = NULL; }
+        }
+    }
 
-                    // Example: Check if "plasma-desktop" is in the cmdline
-                    if (strstr(cmdline, "plasma-desktop") != NULL) {
-                        print_info("DE", "KDE Plasma", 20, 30);
-                        break;
-                    }
-
-                    if (strstr(cmdline, "xfce4-session") != NULL) {
-                        print_info("DE", "XFCE", 20, 30);
-                        break;
-                    }
-
-                    if (strstr(cmdline, "mate-session") != NULL) {
-                        print_info("DE", "MATE", 20, 30);
-                        break;
-                    }
-
-                    if (strstr(cmdline, "lxqt-session") != NULL) {
-                        print_info("DE", "LXQt", 20, 30);
-                        break;
-                    }
-
-                    if (strstr(cmdline, "lxde-session") != NULL) {
-                        print_info("DE", "LXDE", 20, 30);
-                        break;
-                    }
-
+    /* Fallback: WM_NAME (XA_STRING) */
+    if (!ok) {
+        Atom WM_NAME = XInternAtom(dpy, "WM_NAME", True);
+        if (WM_NAME != None) {
+            if (XGetWindowProperty(dpy, wm_win, WM_NAME, 0, (~0L), False, AnyPropertyType,
+                                   &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success) {
+                if (prop && actual_format == 8 && nitems > 0) {
+                    set_out(buf, buflen, (const char*)prop);
+                    ok = 1;
                 }
-
-                fclose(cmdlineFile);
+                if (prop) { XFree(prop); prop = NULL; }
             }
         }
     }
 
-    closedir(dir);
+    XCloseDisplay(dpy);
+    return ok;
+}
+#else
+static int get_wm_name_x11(char *buf, size_t buflen) {
+    (void)buf; (void)buflen;
+    return 0; /* X11 support not compiled in */
+}
+#endif
+
+/* --- Wayland env checks (fast path) --- */
+static int get_wm_name_wayland_env(char *buf, size_t buflen) {
+    /* Highly indicative single-var hints */
+    if (getenv_nc("SWAYSOCK"))                          { set_out(buf, buflen, "sway");      return 1; }
+    if (getenv_nc("HYPRLAND_INSTANCE_SIGNATURE"))       { set_out(buf, buflen, "Hyprland");  return 1; }
+    if (getenv_nc("WAYFIRE_SHELL_REPLACED") || getenv_nc("WAYFIRE_PLUGIN_LOADED"))
+                                                       { set_out(buf, buflen, "wayfire");    return 1; }
+    if (getenv_nc("WESTON_CONFIG_FILE") || str_contains_ci(getenv_nc("XDG_SESSION_DESKTOP"), "weston"))
+                                                       { set_out(buf, buflen, "weston");     return 1; }
+    if (getenv_nc("RIVER_OPTIONS") || str_contains_ci(getenv_nc("XDG_SESSION_DESKTOP"), "river"))
+                                                       { set_out(buf, buflen, "river");      return 1; }
+    if (getenv_nc("LABWC_CONFIG") || str_contains_ci(getenv_nc("XDG_SESSION_DESKTOP"), "labwc"))
+                                                       { set_out(buf, buflen, "labwc");      return 1; }
+
+    /* Desktop family hints → map to compositor */
+    const char *xdg_cur = getenv_nc("XDG_CURRENT_DESKTOP");
+    const char *xdg_ses = getenv_nc("XDG_SESSION_DESKTOP");
+    const char *desk = xdg_cur ? xdg_cur : xdg_ses;
+
+    if (desk) {
+        if (str_contains_ci(desk, "KDE") || str_contains_ci(desk, "PLASMA")) {
+            set_out(buf, buflen, "KWin");
+            return 1;
+        }
+        if (str_contains_ci(desk, "GNOME")) {
+            /* On Wayland GNOME, Mutter is the compositor; users often recognize "GNOME" */
+            set_out(buf, buflen, "Mutter");
+            return 1;
+        }
+        if (str_contains_ci(desk, "COSMIC")) {
+            set_out(buf, buflen, "cosmic-comp"); /* name used upstream for COSMIC compositor */
+            return 1;
+        }
+        if (str_contains_ci(desk, "LXQt")) {
+            /* LXQt on Wayland typically rides KWin */
+            set_out(buf, buflen, "KWin");
+            return 1;
+        }
+    }
+
+    /* Generic Wayland present? Leave to process fallback */
+    if (getenv_nc("WAYLAND_DISPLAY")) return 0;
+
+    return 0;
+}
+
+/* --- X11 process fallback (unusual/no EWMH) --- */
+static int get_wm_name_x11_proc(char *buf, size_t buflen) {
+    /* Prioritized list (most common first) */
+    static const char *candidates[] = {
+        "i3", "bspwm", "awesome", "xmonad", "openbox", "herbstluftwm",
+        "fluxbox", "icewm", "fvwm", "qtile", "wmaker", "pekwm", "jwm",
+        "metacity", "muffin", "xfwm4", "kwin_x11", "kwin", "cinnamon", "sway", "dwm",
+    };
+    return find_first_running(candidates, sizeof(candidates)/sizeof(candidates[0]), buf, buflen);
+}
+
+/* --- Wayland process fallback --- */
+static int get_wm_name_wayland_proc(char *buf, size_t buflen) {
+    static const char *candidates[] = {
+        "sway", "Hyprland", "kwin_wayland", "kwin", "gnome-shell", "mutter",
+        "wayfire", "weston", "river", "labwc", "hikari", "cage", "cagebreak",
+        "wlroots", /* rarely correct alone, but keep after others */
+    };
+    return find_first_running(candidates, sizeof(candidates)/sizeof(candidates[0]), buf, buflen);
+}
+
+/* --- Top-level orchestrator --- */
+int detect_window_manager(char *buf, size_t buflen) {
+    set_out(buf, buflen, NULL); /* clear */
+
+    enum session_kind kind = detect_session_kind();
+
+    if (kind == SESSION_X11) {
+        if (get_wm_name_x11(buf, buflen)) return 1;
+        /* EWMH failed/unusual WM → process fallback */
+        if (get_wm_name_x11_proc(buf, buflen)) return 1;
+        /* As a last resort, try Wayland env/process in case user is on mixed env */
+        if (get_wm_name_wayland_env(buf, buflen)) return 1;
+        if (get_wm_name_wayland_proc(buf, buflen)) return 1;
+        return 0;
+    }
+
+    if (kind == SESSION_WAYLAND) {
+        if (get_wm_name_wayland_env(buf, buflen)) return 1;
+        if (get_wm_name_wayland_proc(buf, buflen)) return 1;
+        /* Mixed case: some WMs run an X server inside Wayland */
+        if (get_wm_name_x11(buf, buflen)) return 1;
+        if (get_wm_name_x11_proc(buf, buflen)) return 1;
+        return 0;
+    }
+
+    /* Unknown session: try everything in a sensible order */
+    if (get_wm_name_wayland_env(buf, buflen)) return 1;
+    if (get_wm_name_x11(buf, buflen)) return 1;
+    if (get_wm_name_wayland_proc(buf, buflen)) return 1;
+    if (get_wm_name_x11_proc(buf, buflen)) return 1;
+
+    return 0;
 }
 
 // haha got ur ip

@@ -31,8 +31,140 @@ typedef struct {
 static distro_entry_t *g_knownDistros = NULL;
 static size_t g_numKnown = 0;
 
-static void parse_distros_def(const char *path)
-{
+/* ---- Package manager auto-detect helpers ---- */
+static int file_exists_exec(const char *p) {
+    return (p && access(p, X_OK) == 0);
+}
+static int dir_exists(const char *p) {
+    struct stat st;
+    return (p && stat(p, &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+/* Minimal os-release getter (string, unquoted) */
+static int os_release_get_kv(const char *key, char *out, size_t outsz) {
+    if (!key || !out || outsz == 0) return 0;
+    FILE *f = fopen("/etc/os-release", "r");
+    if (!f) return 0;
+
+    char line[512];
+    size_t klen = strlen(key);
+    int found = 0;
+
+    while (fgets(line, sizeof line, f)) {
+        if (strncmp(line, key, klen) == 0 && line[klen] == '=') {
+            char *val = line + klen + 1;
+            val[strcspn(val, "\r\n")] = '\0';
+            /* strip optional quotes */
+            size_t n = strlen(val);
+            if (n >= 2 && ((val[0] == '"' && val[n-1] == '"') || (val[0] == '\'' && val[n-1] == '\''))) {
+                memmove(val, val + 1, n - 2);
+                val[n - 2] = '\0';
+            }
+            strncpy(out, val, outsz - 1);
+            out[outsz - 1] = '\0';
+            found = 1;
+            break;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
+/* Returns a package count command into buf (always non-empty).
+   Priority: ID_LIKE → binary probes → final fallback (pacman). */
+   static void detect_pkg_count_cmd(char *buf, size_t bufsz) {
+    if (!buf || bufsz == 0) return;
+    buf[0] = '\0';
+
+    char id_like[256] = {0};
+    os_release_get_kv("ID_LIKE", id_like, sizeof id_like);
+
+    if (id_like[0]) {
+        for (char *p = id_like; *p; ++p)
+            if (*p == ',' || *p == '\t') *p = ' ';
+
+        /* Debian/Ubuntu family */
+        if (strstr(id_like, "debian") || strstr(id_like, "ubuntu") || strstr(id_like, "mint") || strstr(id_like, "raspbian")) {
+            snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return;
+        }
+        /* RHEL/Fedora/SUSE family */
+        if (strstr(id_like, "rhel") || strstr(id_like, "fedora") ||
+            strstr(id_like, "suse") || strstr(id_like, "opensuse") ||
+            strstr(id_like, "centos") || strstr(id_like, "mageia")) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        /* Arch family */
+        if (strstr(id_like, "arch") || strstr(id_like, "manjaro") || strstr(id_like, "endeavouros") || strstr(id_like, "artix")) {
+            snprintf(buf, bufsz, "pacman -Q | wc -l"); return;
+        }
+        /* Alpine */
+        if (strstr(id_like, "alpine")) {
+            snprintf(buf, bufsz, "apk info | wc -l"); return;
+        }
+        /* Gentoo/Sabayon/Calculate */
+        if (strstr(id_like, "gentoo")) {
+            if (file_exists_exec("/usr/bin/equery"))
+                snprintf(buf, bufsz, "equery -q list '*' | wc -l");
+            else if (file_exists_exec("/usr/bin/qlist"))
+                snprintf(buf, bufsz, "qlist -I | wc -l");
+            else
+                snprintf(buf, bufsz, "ls /var/db/pkg | wc -l");
+            return;
+        }
+        /* Void */
+        if (strstr(id_like, "void")) {
+            snprintf(buf, bufsz, "xbps-query -l | wc -l"); return;
+        }
+        /* Solus */
+        if (strstr(id_like, "solus")) {
+            snprintf(buf, bufsz, "eopkg list-installed | wc -l"); return;
+        }
+        /* Slackware */
+        if (strstr(id_like, "slackware")) {
+            snprintf(buf, bufsz, "ls /var/log/packages/ | wc -l"); return;
+        }
+        /* NixOS/Guix */
+        if (strstr(id_like, "nixos") || strstr(id_like, "nix")) {
+            snprintf(buf, bufsz, "nix-env -q | wc -l"); return;
+        }
+        if (strstr(id_like, "guix")) {
+            snprintf(buf, bufsz, "guix package --list-installed | wc -l"); return;
+        }
+        /* Clear Linux */
+        if (strstr(id_like, "clear")) {
+            snprintf(buf, bufsz, "swupd bundle-list | wc -l"); return;
+        }
+        /* Tiny Core (tce) */
+        if (strstr(id_like, "tinycore")) {
+            snprintf(buf, bufsz, "tce-status -i | wc -l"); return;
+        }
+        /* Bedrock Linux – meta, no single package manager */
+        if (strstr(id_like, "bedrock")) {
+            snprintf(buf, bufsz, "echo 0"); return;
+        }
+    }
+
+    /* Binary/FS probes (fallback chain) */
+    if (file_exists_exec("/usr/bin/dpkg"))        { snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return; }
+    if (file_exists_exec("/usr/bin/rpm"))         { snprintf(buf, bufsz, "rpm -qa | wc -l");             return; }
+    if (file_exists_exec("/usr/bin/pacman"))      { snprintf(buf, bufsz, "pacman -Q | wc -l");           return; }
+    if (file_exists_exec("/usr/bin/apk") || file_exists_exec("/sbin/apk") || file_exists_exec("/usr/sbin/apk")) {
+                                                  snprintf(buf, bufsz, "apk info | wc -l");             return; }
+    if (file_exists_exec("/usr/bin/xbps-query"))  { snprintf(buf, bufsz, "xbps-query -l | wc -l");       return; }
+    if (file_exists_exec("/usr/bin/eopkg"))       { snprintf(buf, bufsz, "eopkg list-installed | wc -l");return; }
+    if (file_exists_exec("/usr/bin/equery"))      { snprintf(buf, bufsz, "equery -q list '*' | wc -l");  return; }
+    if (file_exists_exec("/usr/bin/qlist"))       { snprintf(buf, bufsz, "qlist -I | wc -l");            return; }
+    if (dir_exists("/var/log/packages"))          { snprintf(buf, bufsz, "ls /var/log/packages/ | wc -l");return; }
+    if (file_exists_exec("/usr/bin/nix-env"))     { snprintf(buf, bufsz, "nix-env -q | wc -l");          return; }
+    if (file_exists_exec("/usr/bin/guix"))        { snprintf(buf, bufsz, "guix package --list-installed | wc -l");return; }
+    if (file_exists_exec("/usr/bin/swupd"))       { snprintf(buf, bufsz, "swupd bundle-list | wc -l");   return; }
+    if (file_exists_exec("/usr/bin/tce-status"))  { snprintf(buf, bufsz, "tce-status -i | wc -l");       return; }
+
+    /* Final fallback */
+    snprintf(buf, bufsz, "pacman -Q | wc -l");
+}
+
+static void parse_distros_def(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
         // If no distros.def yet, that's okay; we can create it later.
@@ -94,9 +226,10 @@ static void parse_distros_def(const char *path)
     fclose(fp);
 }
 
-static bool insert_auto_added_distro(const char* defPath, 
-                                     const char* distroId, 
-                                     const char* capitalized)
+static bool insert_auto_added_distro(const char* defPath,
+    const char* distroId,
+    const char* capitalized,
+    const char* pkgcmd)
 {
     // We'll need a "was anything inserted?" flag
     bool insertedSomething = false;
@@ -165,10 +298,11 @@ static bool insert_auto_added_distro(const char* defPath,
     }
 
     // 4) Prepare the new line
-    char newLine[256];
+    char newLine[512];
     snprintf(newLine, sizeof(newLine),
-             "DISTRO(\"%s\", \"%s\", \"pacman -Q | wc -l\")",
-             distroId, capitalized);
+            "DISTRO(\"%s\", \"%s\", \"%s\")",
+            distroId, capitalized, pkgcmd && *pkgcmd ? pkgcmd : "pacman -Q | wc -l");
+
 
     // 5) Check if newLine already exists in the "auto added" section.
     //
@@ -328,10 +462,18 @@ const char* detect_linux_distro()
         capitalized[0] = (char)toupper((unsigned char)capitalized[0]);
     }
 
-    // CHANGED: Pass the lower distroId as shortname, capitalized as longname
-    bool inserted = insert_auto_added_distro(defPath, 
-                                             distroId,         // shortname, e.g. "arch"
-                                             capitalized);     // longname,  e.g. "Arch"
+
+
+    // Detect an appropriate package count command for this unknown distro
+    char pkgcmd[256];
+    detect_pkg_count_cmd(pkgcmd, sizeof pkgcmd);
+
+    /* Pass the detected command into the auto-added entry */
+    bool inserted = insert_auto_added_distro(defPath,
+                                            distroId,       /* shortname */
+                                            capitalized,    /* longname  */
+                                            pkgcmd);        /* pkg cmd   */
+
     if (inserted) {
         printf("Auto-updated %s with a new entry for '%s'\n", defPath, distroId);
         // Also, re-parse so that a subsequent call sees it immediately (optional)
@@ -345,51 +487,51 @@ const char* detect_linux_distro()
 }
 
 void display_fetch() {
-	// Fetch system information
-	char hostname[256];
-	const char *detectedDistro = detect_linux_distro();
-	char *username = getlogin();
+    // Fetch system information
+    char hostname[256];
+    const char *detectedDistro = detect_linux_distro();
+    char *username = getlogin();
 
-	if (username == NULL) {
-	    // Fallback: try to retrieve the username using getpwuid
-	    struct passwd *pw = getpwuid(geteuid());
-	    if (pw != NULL) {
-	        username = pw->pw_name;
-	    } else {
-	        cupid_log(LogType_ERROR, "couldn't get username");
-	        username = "";
-	    }
-	}
-	
-	if (gethostname(hostname, sizeof(hostname)) != 0) {
-		cupid_log(LogType_ERROR, "couldn't get hostname");
-		hostname[0] = '\0';
-	}
+    if (username == NULL) {
+        // Fallback: try to retrieve the username using getpwuid
+        struct passwd *pw = getpwuid(geteuid());
+        if (pw != NULL) {
+            username = pw->pw_name;
+        } else {
+            cupid_log(LogType_ERROR, "couldn't get username");
+            username = "";
+        }
+    }
+    
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
+        cupid_log(LogType_ERROR, "couldn't get hostname");
+        hostname[0] = '\0';
+    }
 
-	// Construct the username@hostname string
-	char user_host[512];
-	snprintf(user_host, sizeof(user_host), "%s@%s", username, hostname);
+    // Construct the username@hostname string
+    char user_host[512];
+    snprintf(user_host, sizeof(user_host), "%s@%s", username, hostname);
 
-	// Calculate terminal width and center position
-	int totalWidth = get_terminal_width();
-	int textWidth = strlen(user_host);
-	int spaces = (totalWidth > textWidth) ? (totalWidth - textWidth) / 2 : 0;
+    // Calculate terminal width and center position
+    int totalWidth = get_terminal_width();
+    int textWidth = strlen(user_host);
+    int spaces = (totalWidth > textWidth) ? (totalWidth - textWidth) / 2 : 0;
 
-	// Clear screen and display username@hostname in the center
-	printf("\033[H\033[J"); // Clear screen for a clean redraw
-	printf("\n%*s%s\n", spaces + textWidth, "", user_host);
+    // Clear screen and display username@hostname in the center
+    printf("\033[H\033[J"); // Clear screen for a clean redraw
+    printf("\n%*s%s\n", spaces + textWidth, "", user_host);
 
-	// Display cat ASCII art based on the detected distribution
-	print_cat(detectedDistro);
+    // Display cat ASCII art based on the detected distribution
+    print_cat(detectedDistro);
 
-	// Display system information based on user configuration
-	printf("\n");
-	printf("-----------------------------------------\n");
+    // Display system information based on user configuration
+    printf("\n");
+    printf("-----------------------------------------\n");
 
-	for (size_t i = 0; g_userConfig.modules[i]; i++) {
-		g_userConfig.modules[i]();
-	}
-	fflush(stdout); // Ensure the buffer is flushed after each draw
+    for (size_t i = 0; g_userConfig.modules[i]; i++) {
+        g_userConfig.modules[i]();
+    }
+    fflush(stdout); // Ensure the buffer is flushed after each draw
 }
 
 void handle_sigwinch(int sig) {

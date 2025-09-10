@@ -19,6 +19,7 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
+#define _GNU_SOURCE
 #define MAX_NUM_MODULES 30
 #define CONFIG_PATH_SIZE 256
 #define LINUX_PROC_LINE_SZ 128
@@ -39,6 +40,12 @@ typedef enum {
     LogType_CRITICAL = 3
 } LogType;
 
+enum session_kind {
+    SESSION_UNKNOWN = 0,
+    SESSION_X11,
+    SESSION_WAYLAND
+};
+
 // print.c
 int get_terminal_width();
 void print_info(const char *key, const char *format, int align_key, int align_value, ...);
@@ -58,8 +65,16 @@ void get_local_ip();
 void get_available_memory();
 void get_cpu();
 void get_available_storage();
+void get_window_manager();
 const char* get_home_directory();
 
+
+/* Returns detected session kind based on env vars. */
+enum session_kind detect_session_kind(void);
+
+/* Fills buf with the active WM/compositor name (e.g., "i3", "KWin", "sway", "Hyprland").
+   Returns 1 on success, 0 if unknown. */
+int detect_window_manager(char *buf, size_t buflen);
 // config.c
 extern struct CupidConfig g_userConfig;
 void init_g_config();
