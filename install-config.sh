@@ -47,7 +47,7 @@ else
 # Default cupidfetch configuration
 
 # List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de ip memory cpu storage
+modules = hostname username distro linux_kernel uptime pkg term shell wm ip memory cpu storage
 
 # Memory display settings
 memory.unit-str = MB
