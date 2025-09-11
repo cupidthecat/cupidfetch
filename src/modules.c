@@ -297,6 +297,19 @@ enum session_kind detect_session_kind(void) {
     return SESSION_UNKNOWN;
 }
 
+void get_session_type() {
+    enum session_kind kind = detect_session_kind();
+    const char *session_str = "Unknown";
+
+    switch (kind) {
+        case SESSION_X11:     session_str = "X11";     break;
+        case SESSION_WAYLAND: session_str = "Wayland"; break;
+        case SESSION_UNKNOWN: session_str = "Unknown"; break;
+    }
+
+    print_info("Session", "%s", 20, 30, session_str);
+}
+
 /* --- X11 (EWMH) path --- */
 #if defined(HAVE_X11) || defined(USE_X11)
 static int get_wm_name_x11(char *buf, size_t buflen) {

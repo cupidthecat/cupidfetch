@@ -67,7 +67,7 @@ void get_cpu();
 void get_available_storage();
 void get_window_manager();
 const char* get_home_directory();
-
+void get_session_type();
 
 /* Returns detected session kind based on env vars. */
 enum session_kind detect_session_kind(void);

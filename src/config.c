@@ -27,6 +27,7 @@ struct module string_to_module[] = {
     {"storage", get_available_storage},
     {"cpu", get_cpu},
     {"wm", get_window_manager},
+    {"session", get_session_type},
 };
 
 void init_g_config() {
@@ -34,7 +35,7 @@ void init_g_config() {
     struct CupidConfig cfg_ = {
         .modules = { get_hostname, get_username, get_distro, get_linux_kernel,
                      get_uptime, get_package_count, get_terminal, get_shell,
-                     get_available_storage, get_window_manager,
+                     get_available_storage, get_window_manager, get_session_type,
                      NULL },
         .memory_unit = "MB",
         .memory_unit_size = 1000000,
