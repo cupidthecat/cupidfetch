@@ -1,6 +1,7 @@
 // File: modules.c
 // -----------------------
 #include <sys/statvfs.h>
+#include <limits.h>
 #include "cupidfetch.h"
 #define _GNU_SOURCE
 
@@ -62,6 +63,136 @@ void get_uptime() {
 
     // Corrected usage of print_info
     print_info("Uptime", "%d days, %02d:%02d", 20, 30, days, hours, minutes);
+}
+
+
+static int read_ll(const char *path, long long *out) {
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    char buf[128];
+    if (!fgets(buf, sizeof buf, f)) { fclose(f); return 0; }
+    fclose(f);
+    char *end = NULL;
+    errno = 0;
+    long long v = strtoll(buf, &end, 10);
+    if (errno != 0) return 0;
+    *out = v;
+    return 1;
+}
+
+static int read_str_firstline(const char *path, char *out, size_t outsz) {
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    if (!fgets(out, outsz, f)) { fclose(f); return 0; }
+    fclose(f);
+    out[strcspn(out, "\r\n")] = '\0';
+    return 1;
+}
+
+void get_battery() {
+    const char *ps_root = "/sys/class/power_supply";
+    DIR *d = opendir(ps_root);
+    if (!d) {
+        cupid_log(LogType_WARNING, "no /sys/class/power_supply");
+        return;
+    }
+
+    long long sum_now = 0, sum_full = 0;   // for energy_* or charge_*
+    int have_now_full = 0;                 // 1 if we gathered any now/full pairs
+
+    long long cap_sum = 0;                 // fallback: average of capacity files
+    int cap_cnt = 0;
+
+    int charging_cnt = 0, full_cnt = 0;
+    char last_status[64] = "";
+
+    struct dirent *de;
+    char path[PATH_MAX];
+
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+
+        // type file: check it's a Battery
+        snprintf(path, sizeof path, "%s/%s/type", ps_root, de->d_name);
+        char typebuf[64];
+        if (!read_str_firstline(path, typebuf, sizeof typebuf)) continue;
+        if (strcasecmp(typebuf, "Battery") != 0) continue;
+
+        // status (Charging/Discharging/Full/Unknown)
+        snprintf(path, sizeof path, "%s/%s/status", ps_root, de->d_name);
+        char status[64] = "";
+        if (read_str_firstline(path, status, sizeof status)) {
+            if (strcasecmp(status, "Charging") == 0) charging_cnt++;
+            else if (strcasecmp(status, "Full") == 0) full_cnt++;
+            strncpy(last_status, status, sizeof(last_status) - 1);
+            last_status[sizeof(last_status) - 1] = '\0';
+        }
+
+        // Prefer energy_* if present
+        long long now = -1, full = -1;
+        snprintf(path, sizeof path, "%s/%s/energy_now", ps_root, de->d_name);
+        read_ll(path, &now);
+        snprintf(path, sizeof path, "%s/%s/energy_full", ps_root, de->d_name);
+        read_ll(path, &full);
+
+        if (now >= 0 && full > 0) {
+            sum_now += now;
+            sum_full += full;
+            have_now_full = 1;
+            continue;
+        }
+
+        // Else try charge_*
+        now = -1; full = -1;
+        snprintf(path, sizeof path, "%s/%s/charge_now", ps_root, de->d_name);
+        read_ll(path, &now);
+        snprintf(path, sizeof path, "%s/%s/charge_full", ps_root, de->d_name);
+        read_ll(path, &full);
+
+        if (now >= 0 && full > 0) {
+            sum_now += now;
+            sum_full += full;
+            have_now_full = 1;
+            continue;
+        }
+
+        // Else fallback to capacity
+        long long cap = -1;
+        snprintf(path, sizeof path, "%s/%s/capacity", ps_root, de->d_name);
+        if (read_ll(path, &cap) && cap >= 0) {
+            cap_sum += cap;
+            cap_cnt++;
+        }
+    }
+
+    closedir(d);
+
+    // Decide status string
+    const char *status_str = "Discharging";
+    if (charging_cnt > 0) status_str = "Charging";
+    else if (full_cnt > 0) status_str = "Full";
+    else if (last_status[0]) status_str = last_status;
+
+    // Compute percentage
+    int pct = -1;
+    if (have_now_full && sum_full > 0) {
+        // integer rounding
+        pct = (int)((sum_now * 100 + (sum_full / 2)) / sum_full);
+    } else if (cap_cnt > 0) {
+        pct = (int)(cap_sum / cap_cnt);
+    }
+
+    if (pct < 0) {
+        // No batteries found (desktop) or nothing readable
+        cupid_log(LogType_INFO, "no battery detected");
+        print_info("Battery", "%s", 20, 30, "N/A");
+        return;
+    }
+
+    if (pct > 100) pct = 100;
+    if (pct < 0) pct = 0;
+
+    print_info("Battery", "%d%% (%s)", 20, 30, pct, status_str);
 }
 
 /* --- /etc/os-release helpers --- */
