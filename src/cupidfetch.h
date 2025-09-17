@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <libgen.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -89,5 +90,7 @@ void cupid_log(LogType ltp, const char *format, ...);
 extern FILE *g_log;
 const char* detect_linux_distro();
 void epitaph();
+void get_definitions_file_path(char *resolvedBuf, size_t size);
+void parse_distros_def(const char *path);
 
 #endif // CUPIDFETCH_H

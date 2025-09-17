@@ -1,15 +1,514 @@
 // File: modules.c
 // -----------------------
+#define _GNU_SOURCE
 #include <sys/statvfs.h>
 #include <limits.h>
 #include "cupidfetch.h"
-#define _GNU_SOURCE
-
 
 #if defined(HAVE_X11) || defined(USE_X11)
 #  include <X11/Xlib.h>
 #  include <X11/Xatom.h>
 #endif
+
+// A small struct to hold each distro’s shortname, longname, pkg command
+typedef struct {
+    char shortname[64];
+    char longname[128];
+    char pkgcmd[128];
+} distro_entry_t;
+
+// We'll store them in a global or static array in memory at runtime
+distro_entry_t *g_knownDistros = NULL;
+size_t g_numKnown = 0;
+
+/* ---- Package manager auto-detect helpers ---- */
+int file_exists_exec(const char *p) {
+    return (p && access(p, X_OK) == 0);
+}
+
+int dir_exists(const char *p) {
+    struct stat st;
+    return (p && stat(p, &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+/* Minimal os-release getter (string, unquoted) */
+int os_release_get_kv(const char *key, char *out, size_t outsz) {
+    if (!key || !out || outsz == 0) return 0;
+    FILE *f = fopen("/etc/os-release", "r");
+    if (!f) return 0;
+
+    char line[512];
+    size_t klen = strlen(key);
+    int found = 0;
+
+    while (fgets(line, sizeof line, f)) {
+        if (strncmp(line, key, klen) == 0 && line[klen] == '=') {
+            char *val = line + klen + 1;
+            val[strcspn(val, "\r\n")] = '\0';
+            /* strip optional quotes */
+            size_t n = strlen(val);
+            if (n >= 2 && ((val[0] == '"' && val[n-1] == '"') || (val[0] == '\'' && val[n-1] == '\''))) {
+                memmove(val, val + 1, n - 2);
+                val[n - 2] = '\0';
+            }
+            strncpy(out, val, outsz - 1);
+            out[outsz - 1] = '\0';
+            found = 1;
+            break;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
+/* Returns a package count command into buf (always non-empty).
+   Priority: ID_LIKE → binary probes → final fallback (pacman). */
+void detect_pkg_count_cmd(char *buf, size_t bufsz) {
+    if (!buf || bufsz == 0) return;
+    buf[0] = '\0';
+
+    char id_like[256] = {0};
+    os_release_get_kv("ID_LIKE", id_like, sizeof id_like);
+
+    if (id_like[0]) {
+        for (char *p = id_like; *p; ++p)
+            if (*p == ',' || *p == '\t') *p = ' ';
+
+        /* Debian/Ubuntu family */
+        if (strstr(id_like, "debian") != NULL) {
+            snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return;
+        }
+        if (strstr(id_like, "ubuntu") != NULL) {
+            snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return;
+        }
+        if (strstr(id_like, "mint") != NULL) {
+            snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return;
+        }
+        if (strstr(id_like, "raspbian") != NULL) {
+            snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return;
+        }
+        /* RHEL/Fedora/SUSE family */
+        if (strstr(id_like, "rhel") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        if (strstr(id_like, "fedora") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        if (strstr(id_like, "suse") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        if (strstr(id_like, "opensuse") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        if (strstr(id_like, "centos") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        if (strstr(id_like, "mageia") != NULL) {
+            snprintf(buf, bufsz, "rpm -qa | wc -l"); return;
+        }
+        /* Arch family */
+        if (strstr(id_like, "arch") != NULL) {
+            snprintf(buf, bufsz, "pacman -Q | wc -l"); return;
+        }
+        if (strstr(id_like, "manjaro") != NULL) {
+            snprintf(buf, bufsz, "pacman -Q | wc -l"); return;
+        }
+        if (strstr(id_like, "endeavouros") != NULL) {
+            snprintf(buf, bufsz, "pacman -Q | wc -l"); return;
+        }
+        if (strstr(id_like, "artix") != NULL) {
+            snprintf(buf, bufsz, "pacman -Q | wc -l"); return;
+        }
+        /* Alpine */
+        if (strstr(id_like, "alpine") != NULL) {
+            snprintf(buf, bufsz, "apk info | wc -l"); return;
+        }
+        /* Gentoo/Sabayon/Calculate */
+        if (strstr(id_like, "gentoo") != NULL) {
+            if (file_exists_exec("/usr/bin/equery"))
+                snprintf(buf, bufsz, "equery -q list '*' | wc -l");
+            else if (file_exists_exec("/usr/bin/qlist"))
+                snprintf(buf, bufsz, "qlist -I | wc -l");
+            else
+                snprintf(buf, bufsz, "ls /var/db/pkg | wc -l");
+            return;
+        }
+        /* Void */
+        if (strstr(id_like, "void") != NULL) {
+            snprintf(buf, bufsz, "xbps-query -l | wc -l"); return;
+        }
+        /* Solus */
+        if (strstr(id_like, "solus") != NULL) {
+            snprintf(buf, bufsz, "eopkg list-installed | wc -l"); return;
+        }
+        /* Slackware */
+        if (strstr(id_like, "slackware") != NULL) {
+            snprintf(buf, bufsz, "ls /var/log/packages/ | wc -l"); return;
+        }
+        /* NixOS/Guix */
+        if (strstr(id_like, "nixos") != NULL) {
+            snprintf(buf, bufsz, "nix-env -q | wc -l"); return;
+        }
+        if (strstr(id_like, "nix") != NULL) {
+            snprintf(buf, bufsz, "nix-env -q | wc -l"); return;
+        }
+        if (strstr(id_like, "guix") != NULL) {
+            snprintf(buf, bufsz, "guix package --list-installed | wc -l"); return;
+        }
+        /* Clear Linux */
+        if (strstr(id_like, "clear") != NULL) {
+            snprintf(buf, bufsz, "swupd bundle-list | wc -l"); return;
+        }
+        /* Tiny Core (tce) */
+        if (strstr(id_like, "tinycore") != NULL) {
+            snprintf(buf, bufsz, "tce-status -i | wc -l"); return;
+        }
+        /* Bedrock Linux – meta, no single package manager */
+        if (strstr(id_like, "bedrock") != NULL) {
+            snprintf(buf, bufsz, "echo 0"); return;
+        }
+    }
+
+    /* Binary/FS probes (fallback chain) */
+    if (file_exists_exec("/usr/bin/dpkg"))        { snprintf(buf, bufsz, "dpkg -l | tail -n+6 | wc -l"); return; }
+    if (file_exists_exec("/usr/bin/rpm"))         { snprintf(buf, bufsz, "rpm -qa | wc -l");             return; }
+    if (file_exists_exec("/usr/bin/pacman"))      { snprintf(buf, bufsz, "pacman -Q | wc -l");           return; }
+    if (file_exists_exec("/usr/bin/apk") || file_exists_exec("/sbin/apk") || file_exists_exec("/usr/sbin/apk")) {
+                                                  snprintf(buf, bufsz, "apk info | wc -l");             return; }
+    if (file_exists_exec("/usr/bin/xbps-query"))  { snprintf(buf, bufsz, "xbps-query -l | wc -l");       return; }
+    if (file_exists_exec("/usr/bin/eopkg"))       { snprintf(buf, bufsz, "eopkg list-installed | wc -l");return; }
+    if (file_exists_exec("/usr/bin/equery"))      { snprintf(buf, bufsz, "equery -q list '*' | wc -l");  return; }
+    if (file_exists_exec("/usr/bin/qlist"))       { snprintf(buf, bufsz, "qlist -I | wc -l");            return; }
+    if (dir_exists("/var/log/packages"))          { snprintf(buf, bufsz, "ls /var/log/packages/ | wc -l");return; }
+    if (file_exists_exec("/usr/bin/nix-env"))     { snprintf(buf, bufsz, "nix-env -q | wc -l");          return; }
+    if (file_exists_exec("/usr/bin/guix"))        { snprintf(buf, bufsz, "guix package --list-installed | wc -l");return; }
+    if (file_exists_exec("/usr/bin/swupd"))       { snprintf(buf, bufsz, "swupd bundle-list | wc -l");   return; }
+    if (file_exists_exec("/usr/bin/tce-status"))  { snprintf(buf, bufsz, "tce-status -i | wc -l");       return; }
+
+    /* Final fallback */
+    snprintf(buf, bufsz, "pacman -Q | wc -l");
+}
+
+void parse_distros_def(const char *path) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        // If no distros.def yet, that's okay; we can create it later.
+        return;
+    }
+
+    // We'll store lines in a dynamic array of distro_entry_t
+    char line[512];
+
+    // We could do a simple naive parse, or a small regex. Let's do naive:
+    // DISTRO("short","long","cmd")
+    //
+    // We'll do:   if (strncmp(line, "DISTRO(", 7)==0) then parse inside parentheses
+    // You can refine this as needed.
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Skip leading spaces
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+
+        if (strncmp(p, "DISTRO(", 7) != 0) {
+            continue; // not a line that starts with DISTRO(
+        }
+
+        // We expect a line like:
+        //   DISTRO("arch", "Arch", "pacman -Q | wc -l")
+        //
+        // Let's parse out the 3 strings in quotes.
+
+        // We'll do a super naive parse for demonstration:
+        char shortname[64], longname[128], pkgcmd[128];
+        shortname[0] = longname[0] = pkgcmd[0] = '\0';
+
+        // This works if the line is well-formed.  
+        // We look for exactly 3 pairs of double-quotes with commas in between.
+        // Something like:  DISTRO("short", "long", "cmd")
+        // We can do `sscanf` with a suitable format:
+        //   DISTRO("%63[^\"]", "%127[^\"]", "%127[^\"]") 
+        // plus optional spaces and punctuation. 
+        //
+        // In real code you'd want more robust error-checking.
+
+        int n = sscanf(
+          p,
+          "DISTRO(\"%63[^\"]\" , \"%127[^\"]\" , \"%127[^\"]\")",
+          shortname, longname, pkgcmd
+        );
+        if (n == 3) {
+            // We got a valid parse! Let's store it.
+            // Reallocate global array to hold one more entry
+            g_knownDistros = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
+            strncpy(g_knownDistros[g_numKnown].shortname, shortname, sizeof(g_knownDistros[g_numKnown].shortname));
+            strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
+            strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
+            g_numKnown++;
+        }
+    }
+
+    fclose(fp);
+}
+
+bool insert_auto_added_distro(const char* defPath,
+    const char* distroId,
+    const char* capitalized,
+    const char* pkgcmd) {
+    // We'll need a "was anything inserted?" flag
+    bool insertedSomething = false;
+
+    // 1) Try to open existing file. If it doesn't exist, we’ll create it.
+    FILE* inFile = fopen(defPath, "r");
+    bool fileExisted = (inFile != NULL);
+
+    // We'll store lines here.
+    // If your file is extremely large, consider a streaming approach,
+    // but for typical usage, reading everything into memory is fine.
+    char** lines = NULL;
+    size_t numLines = 0, capacity = 0;
+
+    if (fileExisted) {
+        // 2) Read the entire file line-by-line into memory.
+        char lineBuf[1024];
+        while (fgets(lineBuf, sizeof(lineBuf), inFile)) {
+            // Strip trailing newlines to make searching simpler
+            lineBuf[strcspn(lineBuf, "\r\n")] = '\0';
+
+            // Grow array if needed
+            if (numLines + 1 >= capacity) {
+                capacity = (capacity == 0) ? 16 : capacity * 2;
+                lines = realloc(lines, capacity * sizeof(*lines));
+            }
+
+            // Copy the line into lines[numLines]
+            lines[numLines] = strdup(lineBuf);
+            numLines++;
+        }
+        fclose(inFile);
+    } 
+    else {
+        // The file didn't exist, so we start fresh.
+        capacity = 16;
+        lines = malloc(capacity * sizeof(*lines));
+        numLines = 0;
+
+        // Optionally, if you want to seed it with your original block:
+        lines[numLines++] = strdup("/* dpkg */");
+        lines[numLines++] = strdup("DISTRO(\"ubuntu\", \"Ubuntu\", \"dpkg -l | tail -n+6 | wc -l\")");
+        lines[numLines++] = strdup("// ... etc ...");
+        lines[numLines++] = strdup("/* please don't remove this */");
+        lines[numLines++] = strdup("/* auto added */");
+    }
+
+    // 3) Find the index of "/* auto added */"
+    ssize_t autoAddedIndex = -1;
+    for (size_t i = 0; i < numLines; i++) {
+        if (strstr(lines[i], "/* auto added */")) {
+            autoAddedIndex = (ssize_t)i;
+            break;
+        }
+    }
+
+    // If not found, we append the marker at the end
+    if (autoAddedIndex == -1) {
+        // Grow if needed
+        if (numLines + 1 >= capacity) {
+            capacity *= 2;
+            lines = realloc(lines, capacity * sizeof(*lines));
+        }
+        lines[numLines++] = strdup("/* auto added */");
+        autoAddedIndex = numLines - 1;
+    }
+
+    // 4) Prepare the new line
+    char newLine[512];
+    snprintf(newLine, sizeof(newLine),
+            "DISTRO(\"%s\", \"%s\", \"%s\")",
+            distroId, capitalized, pkgcmd && *pkgcmd ? pkgcmd : "pacman -Q | wc -l");
+
+
+    // 5) Check if newLine already exists in the "auto added" section.
+    //
+    //    We'll define the “auto added” section as everything from
+    //    `autoAddedIndex+1` to the end of the file (or until a next special
+    //    comment if you wanted to end the section).
+    //
+    //    For simplicity, let's just scan from `autoAddedIndex+1` to the end:
+    bool alreadyExists = false;
+    for (size_t i = (size_t)autoAddedIndex + 1; i < numLines; i++) {
+        // If we hit a line that starts with "/* " (a new comment block),
+        // we could break if we wanted to end the “auto added” block there.
+        // But if you want to keep auto added going to the file's end,
+        // just skip that logic.
+        //
+        // Now check for an exact match:
+        if (strcmp(lines[i], newLine) == 0) {
+            alreadyExists = true;
+            break;
+        }
+    }
+
+    if (!alreadyExists) {
+        // We actually want to insert the new distro line
+
+        // Grow if needed
+        if (numLines + 1 >= capacity) {
+            capacity *= 2;
+            lines = realloc(lines, capacity * sizeof(*lines));
+        }
+        // Shift everything after autoAddedIndex by one slot
+        for (size_t i = numLines; i > (size_t)autoAddedIndex + 1; i--) {
+            lines[i] = lines[i - 1];
+        }
+        // Put new line right after autoAddedIndex
+        lines[autoAddedIndex + 1] = strdup(newLine);
+        numLines++;
+
+        // We'll rewrite the file at the end
+        insertedSomething = true;
+    }
+
+    // 6) Rewrite the entire file only if we inserted something
+    if (insertedSomething) {
+        FILE *outFile = fopen(defPath, "w");
+        if (!outFile) {
+            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, strerror(errno));
+            // Clean up
+            for (size_t i = 0; i < numLines; i++) {
+                free(lines[i]);
+            }
+            free(lines);
+            return false;
+        }
+        for (size_t i = 0; i < numLines; i++) {
+            fprintf(outFile, "%s\n", lines[i]);
+            free(lines[i]);
+        }
+        fclose(outFile);
+    }
+    else {
+        // Even if we didn't insert, we should free the lines
+        for (size_t i = 0; i < numLines; i++) {
+            free(lines[i]);
+        }
+        free(lines);
+    }
+
+    return insertedSomething;
+}
+
+void get_definitions_file_path(char *resolvedBuf, size_t size) {
+    // 1. Read the path of the running executable.
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len == -1) {
+        fprintf(stderr, "Failed to read /proc/self/exe\n");
+        // Fallback
+        snprintf(resolvedBuf, size, "data/distros.def");
+        return;
+    }
+    exePath[len] = '\0';
+
+    // 2. Extract the directory part (of the current executable).
+    //    e.g. if exePath == "/home/frank/cupidfetch/cupidfetch",
+    //    then dir == "/home/frank/cupidfetch"
+    char *dir = dirname(exePath);
+
+    // 3. Build a path to distros.def (NO ../ now).
+    //    e.g. "/home/frank/cupidfetch/data/distros.def"
+    char tmpBuf[PATH_MAX];
+    snprintf(tmpBuf, sizeof(tmpBuf), "%s/data/distros.def", dir);
+
+    // 4. Make sure the data directory exists.
+    {
+        char tmpDir[PATH_MAX];
+        strncpy(tmpDir, tmpBuf, sizeof(tmpDir));
+        tmpDir[PATH_MAX - 1] = '\0';
+        char *dataDir = dirname(tmpDir);
+        mkdir(dataDir, 0755);
+    }
+
+    // 5. realpath() that full path to distros.def.
+    //    If the file doesn't exist yet, realpath() can fail;
+    //    so we fall back to tmpBuf in that case.
+    if (!realpath(tmpBuf, resolvedBuf)) {
+        snprintf(resolvedBuf, size, "%s", tmpBuf);
+    }
+}
+
+
+const char* detect_linux_distro()
+{
+    // 1) Read /etc/os-release
+    FILE* os_release = fopen("/etc/os-release", "r");
+    if (!os_release) {
+        fprintf(stderr, "Error opening /etc/os-release\n");
+        exit(EXIT_FAILURE);
+    }
+
+    char line[256];
+    char distroId[128] = "unknown";
+    while (fgets(line, sizeof(line), os_release)) {
+        if (strncmp(line, "ID=", 3) == 0) {
+            char* p = line + 3; // skip "ID="
+            p[strcspn(p, "\r\n")] = '\0';  // remove trailing newline
+            // make it all lowercase
+            for (char* c = p; *c; c++) *c = tolower(*c);
+            strncpy(distroId, p, sizeof(distroId)-1);
+            distroId[sizeof(distroId)-1] = '\0';
+            break;
+        }
+    }
+    fclose(os_release);
+
+    // 2) Check if known in g_knownDistros
+    for (size_t i = 0; i < g_numKnown; i++) {
+        if (strcmp(distroId, g_knownDistros[i].shortname) == 0) {
+            // Found it => return the "long name"
+            return g_knownDistros[i].longname;
+        }
+    }
+
+    // Not found => unknown
+    fprintf(stderr, "Warning: Unknown distribution '%s'\n", distroId);
+
+    // 3) Auto-add it to distros.def
+    char defPath[PATH_MAX];
+    get_definitions_file_path(defPath, sizeof(defPath));
+
+    // CHANGED: Create a separate capitalized name
+    char capitalized[128];
+    strncpy(capitalized, distroId, sizeof(capitalized)-1);
+    capitalized[sizeof(capitalized)-1] = '\0';
+
+    if (capitalized[0]) {
+        capitalized[0] = (char)toupper((unsigned char)capitalized[0]);
+    }
+
+
+
+    // Detect an appropriate package count command for this unknown distro
+    char pkgcmd[256];
+    detect_pkg_count_cmd(pkgcmd, sizeof pkgcmd);
+
+    /* Pass the detected command into the auto-added entry */
+    bool inserted = insert_auto_added_distro(defPath,
+                                            distroId,       /* shortname */
+                                            capitalized,    /* longname  */
+                                            pkgcmd);        /* pkg cmd   */
+
+    if (inserted) {
+        printf("Auto-updated %s with a new entry for '%s'\n", defPath, distroId);
+        // Also, re-parse so that a subsequent call sees it immediately (optional)
+        parse_distros_def(defPath);
+    }
+
+    // CHANGED: Return the capitalized version as "Distro"
+    static char retBuf[128];
+    snprintf(retBuf, sizeof(retBuf), "%s", capitalized);
+    return retBuf;
+}
 
 void get_hostname() {
     char hostname[256];
@@ -75,7 +574,7 @@ static int read_ll(const char *path, long long *out) {
     char *end = NULL;
     errno = 0;
     long long v = strtoll(buf, &end, 10);
-    if (errno != 0) return 0;
+    if (errno != 0 || end == buf || (*end != '\0' && *end != '\n' && *end != '\r')) return 0;
     *out = v;
     return 1;
 }
@@ -177,7 +676,7 @@ void get_battery() {
     int pct = -1;
     if (have_now_full && sum_full > 0) {
         // integer rounding
-        pct = (int)((sum_now * 100 + (sum_full / 2)) / sum_full);
+        pct = (int)((((double)sum_now) * 100.0 + ((double)sum_full) / 2.0) / (double)sum_full);
     } else if (cap_cnt > 0) {
         pct = (int)(cap_sum / cap_cnt);
     }
@@ -190,7 +689,6 @@ void get_battery() {
     }
 
     if (pct > 100) pct = 100;
-    if (pct < 0) pct = 0;
 
     print_info("Battery", "%d%% (%s)", 20, 30, pct, status_str);
 }
