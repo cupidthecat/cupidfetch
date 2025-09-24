@@ -692,7 +692,7 @@ void get_battery() {
         // Calculate battery percentage with integer rounding:
         // (sum_now * 100 + sum_full/2) / sum_full
         // This formula ensures correct rounding when converting to integer.
-        pct = (int)((((double)sum_now) * 100.0 + ((double)sum_full) / 2.0) / (double)sum_full);
+        pct = (int)(sum_now * 100 + sum_full / 2) / sum_full;
     } else if (cap_cnt > 0) {
         pct = (int)(cap_sum / cap_cnt);
     }
