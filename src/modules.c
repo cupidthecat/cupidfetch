@@ -289,7 +289,7 @@ bool insert_auto_added_distro(const char* defPath,
 
             // Grow array if needed
             if (numLines + 1 >= capacity) {
-                capacit     y = (capacity == 0) ? 16 : capacity * 2;
+                capacity = (capacity == 0) ? 16 : capacity * 2;
                 lines = realloc(lines, capacity * sizeof(*lines));
             }
 
