@@ -251,11 +251,9 @@ void parse_distros_def(const char *path) {
                 return;
             }
             g_knownDistros = tmp;
-            strncpy(g_knownDistros[g_numKnown].shortname, shortname, sizeof(g_knownDistros[g_numKnown].shortname));
-            g_knownDistros[g_numKnown].shortname[sizeof(g_knownDistros[g_numKnown].shortname) - 1] = '\0';
-            strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
-            g_knownDistros[g_numKnown].longname[sizeof(g_knownDistros[g_numKnown].longname) - 1] = '\0';
-            strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
+            snprintf(g_knownDistros[g_numKnown].shortname, sizeof(g_knownDistros[g_numKnown].shortname), "%s", shortname);
+            snprintf(g_knownDistros[g_numKnown].longname, sizeof(g_knownDistros[g_numKnown].longname), "%s", longname);
+            snprintf(g_knownDistros[g_numKnown].pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd), "%s", pkgcmd);
             g_numKnown++;
         }
     }
