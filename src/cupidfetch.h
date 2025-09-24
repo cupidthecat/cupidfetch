@@ -20,7 +20,6 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-#define _GNU_SOURCE
 #define MAX_NUM_MODULES 30
 #define CONFIG_PATH_SIZE 256
 #define LINUX_PROC_LINE_SZ 128

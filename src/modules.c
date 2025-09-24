@@ -240,17 +240,23 @@ void parse_distros_def(const char *path) {
         if (n == 3) {
             // We got a valid parse! Let's store it.
             // Reallocate global array to hold one more entry
+            // Store original pointer in case realloc fails
+            distro_entry_t *original = g_knownDistros;
             distro_entry_t *tmp = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
             if (!tmp) {
-                // realloc failed; do not update g_knownDistros, handle error
+                // realloc failed; free original memory and handle error
                 fprintf(stderr, "Error: realloc failed while parsing distros.def\n");
+                free(original);
                 fclose(fp);
                 return;
             }
             g_knownDistros = tmp;
             strncpy(g_knownDistros[g_numKnown].shortname, shortname, sizeof(g_knownDistros[g_numKnown].shortname));
+            g_knownDistros[g_numKnown].shortname[sizeof(g_knownDistros[g_numKnown].shortname) - 1] = '\0';
             strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
+            g_knownDistros[g_numKnown].longname[sizeof(g_knownDistros[g_numKnown].longname) - 1] = '\0';
             strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
+            g_knownDistros[g_numKnown].
             g_numKnown++;
         }
     }
@@ -284,7 +290,7 @@ bool insert_auto_added_distro(const char* defPath,
 
             // Grow array if needed
             if (numLines + 1 >= capacity) {
-                capacity = (capacity == 0) ? 16 : capacity * 2;
+                capacit     y = (capacity == 0) ? 16 : capacity * 2;
                 lines = realloc(lines, capacity * sizeof(*lines));
             }
 
@@ -381,13 +387,8 @@ bool insert_auto_added_distro(const char* defPath,
         FILE *outFile = fopen(defPath, "w");
         if (!outFile) {
             char errbuf[256];
-            #ifdef _GNU_SOURCE
             char *errmsg = strerror_r(errno, errbuf, sizeof(errbuf));
-            #else
-                        strerror_r(errno, errbuf, sizeof(errbuf));
-                        char *errmsg = errbuf;
-            #endif
-                        fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, errmsg);
+            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, errmsg);
             // Clean up
             for (size_t i = 0; i < numLines; i++) {
                 free(lines[i]);
