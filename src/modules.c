@@ -256,7 +256,6 @@ void parse_distros_def(const char *path) {
             strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
             g_knownDistros[g_numKnown].longname[sizeof(g_knownDistros[g_numKnown].longname) - 1] = '\0';
             strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
-            g_knownDistros[g_numKnown].
             g_numKnown++;
         }
     }
