@@ -240,7 +240,14 @@ void parse_distros_def(const char *path) {
         if (n == 3) {
             // We got a valid parse! Let's store it.
             // Reallocate global array to hold one more entry
-            g_knownDistros = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
+            distro_entry_t *tmp = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
+            if (!tmp) {
+                // realloc failed; do not update g_knownDistros, handle error
+                fprintf(stderr, "Error: realloc failed while parsing distros.def\n");
+                fclose(fp);
+                return;
+            }
+            g_knownDistros = tmp;
             strncpy(g_knownDistros[g_numKnown].shortname, shortname, sizeof(g_knownDistros[g_numKnown].shortname));
             strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
             strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
@@ -373,7 +380,14 @@ bool insert_auto_added_distro(const char* defPath,
     if (insertedSomething) {
         FILE *outFile = fopen(defPath, "w");
         if (!outFile) {
-            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, strerror(errno));
+            char errbuf[256];
+            #ifdef _GNU_SOURCE
+            char *errmsg = strerror_r(errno, errbuf, sizeof(errbuf));
+            #else
+                        strerror_r(errno, errbuf, sizeof(errbuf));
+                        char *errmsg = errbuf;
+            #endif
+                        fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, errmsg);
             // Clean up
             for (size_t i = 0; i < numLines; i++) {
                 free(lines[i]);
@@ -675,7 +689,9 @@ void get_battery() {
     // Compute percentage
     int pct = -1;
     if (have_now_full && sum_full > 0) {
-        // integer rounding
+        // Calculate battery percentage with integer rounding:
+        // (sum_now * 100 + sum_full/2) / sum_full
+        // This formula ensures correct rounding when converting to integer.
         pct = (int)((((double)sum_now) * 100.0 + ((double)sum_full) / 2.0) / (double)sum_full);
     } else if (cap_cnt > 0) {
         pct = (int)(cap_sum / cap_cnt);
