@@ -386,8 +386,8 @@ bool insert_auto_added_distro(const char* defPath,
         FILE *outFile = fopen(defPath, "w");
         if (!outFile) {
             char errbuf[256];
-            char *errmsg = strerror_r(errno, errbuf, sizeof(errbuf));
-            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, errmsg);
+            strerror_r(errno, errbuf, sizeof(errbuf));
+            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, errbuf);
             // Clean up
             for (size_t i = 0; i < numLines; i++) {
                 free(lines[i]);
