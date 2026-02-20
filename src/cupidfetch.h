@@ -45,6 +45,9 @@ typedef enum {
 int get_terminal_width();
 void print_info(const char *key, const char *format, int align_key, int align_value, ...);
 void print_cat(const char* distro);
+void begin_info_capture(void);
+void end_info_capture(void);
+void render_fetch_panel(const char *distro, const char *user_host);
 
 // modules.c
 void get_hostname();
