@@ -61,6 +61,8 @@ void get_shell();
 void get_terminal();
 void get_desktop_environment();
 void get_window_manager();
+void get_theme();
+void get_icons();
 void get_display_server();
 void get_net();
 void get_local_ip();

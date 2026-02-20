@@ -26,8 +26,8 @@ void get_available_storage() {
         unsigned long long total_bytes = (unsigned long long)stat.f_blocks * (unsigned long long)stat.f_frsize;
         unsigned long long available_bytes = (unsigned long long)stat.f_bavail * (unsigned long long)stat.f_frsize;
 
-        unsigned long total = (unsigned long)(total_bytes / g_userConfig.storage_unit_size);
-        unsigned long available = (unsigned long)(available_bytes / g_userConfig.storage_unit_size);
+        unsigned long total = cf_convert_bytes_to_unit(total_bytes, g_userConfig.storage_unit_size);
+        unsigned long available = cf_convert_bytes_to_unit(available_bytes, g_userConfig.storage_unit_size);
         unsigned long used = (total > available) ? (total - available) : 0;
         unsigned long usage_percent = total > 0 ? (used * 100UL) / total : 0;
 

@@ -533,3 +533,94 @@ bool cf_should_skip_storage_mount(const char *device, const char *mnt_point, con
 
     return false;
 }
+
+bool cf_parse_distro_def_line(
+    const char *line,
+    char *shortname_out,
+    size_t shortname_out_size,
+    char *longname_out,
+    size_t longname_out_size,
+    char *pkgcmd_out,
+    size_t pkgcmd_out_size
+) {
+    if (!line || !shortname_out || !longname_out || !pkgcmd_out) return false;
+    if (shortname_out_size == 0 || longname_out_size == 0 || pkgcmd_out_size == 0) return false;
+
+    shortname_out[0] = '\0';
+    longname_out[0] = '\0';
+    pkgcmd_out[0] = '\0';
+
+    const char *p = line;
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "DISTRO(", 7) != 0) return false;
+
+    const char *cursor = strchr(p, '"');
+    if (!cursor) return false;
+    cursor++;
+
+    const char *end = strchr(cursor, '"');
+    if (!end) return false;
+    size_t len = (size_t)(end - cursor);
+    if (len >= shortname_out_size) len = shortname_out_size - 1;
+    memcpy(shortname_out, cursor, len);
+    shortname_out[len] = '\0';
+
+    cursor = strchr(end + 1, '"');
+    if (!cursor) return false;
+    cursor++;
+    end = strchr(cursor, '"');
+    if (!end) return false;
+    len = (size_t)(end - cursor);
+    if (len >= longname_out_size) len = longname_out_size - 1;
+    memcpy(longname_out, cursor, len);
+    longname_out[len] = '\0';
+
+    cursor = strchr(end + 1, '"');
+    if (!cursor) return false;
+    cursor++;
+    end = strchr(cursor, '"');
+    if (!end) return false;
+    len = (size_t)(end - cursor);
+    if (len >= pkgcmd_out_size) len = pkgcmd_out_size - 1;
+    memcpy(pkgcmd_out, cursor, len);
+    pkgcmd_out[len] = '\0';
+
+    return true;
+}
+
+bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_size) {
+    if (!line || !id_out || id_out_size == 0) return false;
+
+    id_out[0] = '\0';
+    if (strncmp(line, "ID=", 3) != 0) return false;
+
+    const char *value = line + 3;
+    while (*value == ' ' || *value == '\t') value++;
+    if (*value == '\0') return false;
+
+    char temp[128];
+    strncpy(temp, value, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+    temp[strcspn(temp, "\r\n")] = '\0';
+
+    char *trimmed = cf_trim_spaces(temp);
+    size_t len = strlen(trimmed);
+    if (len >= 2 && trimmed[0] == '"' && trimmed[len - 1] == '"') {
+        trimmed[len - 1] = '\0';
+        trimmed++;
+    }
+
+    if (!trimmed[0]) return false;
+
+    strncpy(id_out, trimmed, id_out_size - 1);
+    id_out[id_out_size - 1] = '\0';
+    for (char *c = id_out; *c; c++) {
+        *c = (char)tolower((unsigned char)*c);
+    }
+    return true;
+}
+
+unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
+    if (unit_size == 0) return 0;
+    return (unsigned long)(bytes / unit_size);
+}

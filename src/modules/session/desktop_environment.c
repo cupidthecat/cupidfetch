@@ -17,12 +17,21 @@ void get_desktop_environment() {
     static const struct process_match de_candidates[] = {
         {"gnome-shell", "GNOME"},
         {"plasmashell", "KDE Plasma"},
+        {"kwin_wayland", "KDE Plasma"},
+        {"kwin_x11", "KDE Plasma"},
         {"xfce4-session", "XFCE"},
         {"mate-session", "MATE"},
         {"lxqt-session", "LXQt"},
         {"lxsession", "LXDE"},
         {"cinnamon-session", "Cinnamon"},
         {"budgie-desktop", "Budgie"},
+        {"enlightenment", "Enlightenment"},
+        {"pantheon-session", "Pantheon"},
+        {"startdde", "Deepin"},
+        {"ukui-session", "UKUI"},
+        {"cutefish-session", "Cutefish"},
+        {"sway", "Sway"},
+        {"hyprland", "Hyprland"},
     };
 
     const char *detected = cf_detect_process_label(de_candidates, sizeof(de_candidates) / sizeof(de_candidates[0]));

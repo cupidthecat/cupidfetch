@@ -251,11 +251,6 @@ static void make_palette_row(int base, char *out, size_t out_size) {
             break;
         }
         used += (size_t)written;
-
-        if (i < 7 && used + 1 < out_size) {
-            out[used++] = ' ';
-            out[used] = '\0';
-        }
     }
 }
 
@@ -1071,7 +1066,7 @@ int get_terminal_width() {
     // FIXME: no error handling
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     return w.ws_col;
-}
+}   
 
 void print_info(const char *key, const char *format, int align_key, int align_value, ...) {
     va_list args;

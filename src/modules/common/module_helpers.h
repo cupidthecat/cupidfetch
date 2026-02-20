@@ -32,5 +32,16 @@ bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, 
 bool cf_get_public_ip(char *ip_out, size_t ip_out_size);
 void cf_mask_public_ip(const char *ip_in, char *masked_out, size_t masked_out_size);
 bool cf_should_skip_storage_mount(const char *device, const char *mnt_point, const char *fs_type);
+bool cf_parse_distro_def_line(
+    const char *line,
+    char *shortname_out,
+    size_t shortname_out_size,
+    char *longname_out,
+    size_t longname_out_size,
+    char *pkgcmd_out,
+    size_t pkgcmd_out_size
+);
+bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_size);
+unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size);
 
 #endif

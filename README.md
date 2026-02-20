@@ -26,11 +26,13 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - Kernel version  
 - Uptime  
 - Package count  
-- Package count (with distro command + package-manager fallback detection)  
+- Package count (with package-manager coverage map + safer fallback logic)  
 - Shell  
 - Terminal  
 - Desktop environment  
 - Window manager  
+- Theme  
+- Icons  
 - Display server (Wayland/X11)  
 - Network status (interface state, local/public IP with IPv4/IPv6 local detection)  
 - Battery level  
@@ -124,7 +126,13 @@ sudo apt install git
 4. **Debug**:
    - Use `make clean asan` or `make clean ubsan` to check for overflows/memory leaks or undefined behavior.
 
-5. **View the Output**:  
+5. **Run lightweight tests**:
+   - `make test` runs all lightweight parser/detector tests.
+   - `make test-parsers` covers distro definition + `/etc/os-release` ID parsing.
+   - `make test-config` covers config parsing (`modules`, units, and boolean flags).
+   - `make test-units` covers byte-to-unit conversion helpers.
+
+6. **View the Output**:  
    Prints system info such as distro, kernel, uptime, etc., and displays ASCII art for recognized distros.
 
 ### CLI Flags
@@ -149,7 +157,7 @@ You can use the `install-config.sh` script to create a configuration file for cu
 ### Example `cupidfetch.conf`
 ```ini
 # List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de wm display_server net ip battery gpu memory cpu storage
+modules = hostname username distro linux_kernel uptime pkg term shell de wm theme icons display_server net ip battery gpu memory cpu storage
 
 # Memory display settings
 memory.unit-str = MB
@@ -170,10 +178,10 @@ Adjust as needed; e.g., switch units to test different scale factors.
 Whenever cupidfetch encounters a distro that isn’t listed in `data/distros.def`, it:
 
 1. Warns you that the distro is unknown.  
-2. Inserts a new `DISTRO("shortname", "Capitalized", "pacman -Q | wc -l")` entry into `distros.def`, under an `/* auto added */` comment.
+2. Inserts a new `DISTRO("shortname", "Capitalized", "")` entry into `distros.def`, under an `/* auto added */` comment.
 3. Re-parses `distros.def`, so subsequent runs show the proper distro name.
 
-> **Note**: The default package command is set to `pacman -Q | wc -l`. If your newly added distro uses a different package manager (e.g., `dpkg`, `dnf`, or something else), you might want to edit `distros.def` manually to change the package count command.
+> **Note**: Package counting now prioritizes an internal distro→package-manager coverage map and direct, safer counting strategies (filesystem/database reads where possible). The distro command in `distros.def` is now a fallback and shell-heavy commands are intentionally ignored.
 
 ## Logo Rendering
 
@@ -185,8 +193,8 @@ Whenever cupidfetch encounters a distro that isn’t listed in `data/distros.def
 
 If you prefer **manual** updates (or want to tweak the auto-added lines), edit `data/distros.def`. For example, to add “cupidOS” which uses `dpkg`:
 ```text
-DISTRO("ubuntu" , "Ubuntu" , "dpkg -l | tail -n+6 | wc -l")
-DISTRO("cupidOS", "cupidOS", "dpkg -l | tail -n+6 | wc -l")
+DISTRO("ubuntu" , "Ubuntu" , "")
+DISTRO("cupidOS", "cupidOS", "")
 ```
 However, thanks to auto-add, you often won’t need to touch this file for new distros-cupidfetch will do it for you!
 

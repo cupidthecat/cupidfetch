@@ -15,6 +15,7 @@
 #include <pwd.h> 
 // Local Includes
 #include "cupidfetch.h"
+#include "modules/common/module_helpers.h"
 
 // Global Variables
 FILE *g_log = NULL;
@@ -112,12 +113,15 @@ static void parse_distros_def(const char *path)
         //
         // In real code you'd want more robust error-checking.
 
-        int n = sscanf(
-          p,
-          "DISTRO(\"%63[^\"]\" , \"%127[^\"]\" , \"%127[^\"]\")",
-          shortname, longname, pkgcmd
-        );
-        if (n == 3) {
+                if (cf_parse_distro_def_line(
+                                p,
+                                shortname,
+                                sizeof(shortname),
+                                longname,
+                                sizeof(longname),
+                                pkgcmd,
+                                sizeof(pkgcmd)
+                        )) {
             // We got a valid parse! Let's store it.
             // Reallocate global array to hold one more entry
             g_knownDistros = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
@@ -175,7 +179,7 @@ static bool insert_auto_added_distro(const char* defPath,
 
         // Optionally, if you want to seed it with your original block:
         lines[numLines++] = strdup("/* dpkg */");
-        lines[numLines++] = strdup("DISTRO(\"ubuntu\", \"Ubuntu\", \"dpkg -l | tail -n+6 | wc -l\")");
+        lines[numLines++] = strdup("DISTRO(\"ubuntu\", \"Ubuntu\", \"\")");
         lines[numLines++] = strdup("// ... etc ...");
         lines[numLines++] = strdup("/* please don't remove this */");
         lines[numLines++] = strdup("/* auto added */");
@@ -204,7 +208,7 @@ static bool insert_auto_added_distro(const char* defPath,
     // 4) Prepare the new line
     char newLine[256];
     snprintf(newLine, sizeof(newLine),
-             "DISTRO(\"%s\", \"%s\", \"pacman -Q | wc -l\")",
+             "DISTRO(\"%s\", \"%s\", \"\")",
              distroId, capitalized);
 
     // 5) Check if newLine already exists in the "auto added" section.
@@ -333,13 +337,7 @@ const char* detect_linux_distro()
     char line[256];
     char distroId[128] = "unknown";
     while (fgets(line, sizeof(line), os_release)) {
-        if (strncmp(line, "ID=", 3) == 0) {
-            char* p = line + 3; // skip "ID="
-            p[strcspn(p, "\r\n")] = '\0';  // remove trailing newline
-            // make it all lowercase
-            for (char* c = p; *c; c++) *c = tolower(*c);
-            strncpy(distroId, p, sizeof(distroId)-1);
-            distroId[sizeof(distroId)-1] = '\0';
+        if (cf_parse_os_release_id_line(line, distroId, sizeof(distroId))) {
             break;
         }
     }

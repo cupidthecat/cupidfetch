@@ -1,4 +1,5 @@
 #include "../../cupidfetch.h"
+#include "../common/module_helpers.h"
 
 void get_available_memory() {
     ssize_t mem_avail = -1, mem_total = -1;
@@ -65,9 +66,9 @@ void get_available_memory() {
 
     print_info(
         "Memory", "%ld %s / %ld %s", 20, 30,
-        mem_used * 1024 / g_userConfig.memory_unit_size,
+        (long)cf_convert_bytes_to_unit((unsigned long long)mem_used * 1024ULL, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit,
-        mem_total * 1024 / g_userConfig.memory_unit_size,
+        (long)cf_convert_bytes_to_unit((unsigned long long)mem_total * 1024ULL, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit
     );
 }
