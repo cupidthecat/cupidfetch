@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -30,6 +31,7 @@ struct CupidConfig {
     unsigned long memory_unit_size;
     char storage_unit[MEMORY_UNIT_LEN];
     unsigned long storage_unit_size;
+    bool network_show_full_public_ip;
 };
 
 typedef enum {
@@ -56,6 +58,7 @@ void get_terminal();
 void get_desktop_environment();
 void get_window_manager();
 void get_display_server();
+void get_net();
 void get_local_ip();
 void get_battery();
 void get_gpu();

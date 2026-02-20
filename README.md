@@ -27,6 +27,7 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - Desktop environment  
 - Window manager  
 - Display server (Wayland/X11)  
+- Network status (interface, local/public IP)  
 - Battery level  
 - GPU  
 - Username  
@@ -130,7 +131,7 @@ You can use the `install-config.sh` script to create a configuration file for cu
 ### Example `cupidfetch.conf`
 ```ini
 # List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de wm display_server ip battery gpu memory cpu storage
+modules = hostname username distro linux_kernel uptime pkg term shell de wm display_server net ip battery gpu memory cpu storage
 
 # Memory display settings
 memory.unit-str = MB
@@ -139,6 +140,10 @@ memory.unit-size = 1000000
 # Storage display settings
 storage.unit-str = GB
 storage.unit-size = 1000000000
+
+# Network display settings
+# false = mask public IP (default), true = show full public IP
+network.show-full-public-ip = false
 ```
 Adjust as needed; e.g., switch units to test different scale factors.
 

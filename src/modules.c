@@ -292,6 +292,100 @@ static bool detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t
     return gpu_out[0] != '\0';
 }
 
+static bool detect_primary_ipv4(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
+    struct ifaddrs *ifaddr = NULL;
+    struct ifaddrs *ifa;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return false;
+    }
+
+    bool found = false;
+    bool found_up = false;
+    char iface_buf[64] = "";
+    char ip_buf[16] = "";
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) continue;
+
+        struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+        const char *ip = inet_ntoa(addr->sin_addr);
+        if (!ip || strncmp(ip, "127.", 4) == 0) continue;
+
+        bool current_up = (ifa->ifa_flags & IFF_UP) != 0;
+        if (!found || (!found_up && current_up)) {
+            strncpy(iface_buf, ifa->ifa_name, sizeof(iface_buf));
+            iface_buf[sizeof(iface_buf) - 1] = '\0';
+            strncpy(ip_buf, ip, sizeof(ip_buf));
+            ip_buf[sizeof(ip_buf) - 1] = '\0';
+            found = true;
+            found_up = current_up;
+
+            if (found_up) break;
+        }
+    }
+
+    freeifaddrs(ifaddr);
+
+    if (!found) return false;
+
+    strncpy(iface_out, iface_buf, iface_out_size);
+    iface_out[iface_out_size - 1] = '\0';
+    strncpy(ip_out, ip_buf, ip_out_size);
+    ip_out[ip_out_size - 1] = '\0';
+    *is_up = found_up;
+    return true;
+}
+
+static bool get_public_ip(char *ip_out, size_t ip_out_size) {
+    FILE *fp = popen(
+        "sh -c \"if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 2 https://api.ipify.org; "
+        "elif command -v wget >/dev/null 2>&1; then wget -qO- --timeout=2 https://api.ipify.org; fi\" 2>/dev/null",
+        "r"
+    );
+    if (!fp) return false;
+
+    char buffer[128] = "";
+    bool ok = fgets(buffer, sizeof(buffer), fp) != NULL;
+    pclose(fp);
+
+    if (!ok) return false;
+
+    trim_newline(buffer);
+    if (buffer[0] == '\0') return false;
+
+    strncpy(ip_out, buffer, ip_out_size);
+    ip_out[ip_out_size - 1] = '\0';
+    return true;
+}
+
+static void mask_public_ip(const char *ip_in, char *masked_out, size_t masked_out_size) {
+    if (!ip_in || !ip_in[0]) {
+        masked_out[0] = '\0';
+        return;
+    }
+
+    if (strchr(ip_in, '.')) {
+        unsigned int a, b, c, d;
+        if (sscanf(ip_in, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 &&
+            a <= 255 && b <= 255 && c <= 255 && d <= 255) {
+            snprintf(masked_out, masked_out_size, "x.x.%u.%u", c, d);
+            return;
+        }
+    }
+
+    if (strchr(ip_in, ':')) {
+        size_t len = strlen(ip_in);
+        if (len > 8) {
+            snprintf(masked_out, masked_out_size, "...%s", ip_in + (len - 8));
+            return;
+        }
+    }
+
+    snprintf(masked_out, masked_out_size, "hidden");
+}
+
 void get_hostname() {
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -520,24 +614,41 @@ void get_display_server() {
 
 // haha got ur ip
 void get_local_ip() {
-    struct ifaddrs *ifaddr, *ifa;
-    if (getifaddrs(&ifaddr) == -1) {
-        cupid_log(LogType_ERROR, "getifaddrs failed");
+    char iface[64] = "";
+    char ip_addr[16] = "";
+    bool up = false;
+
+    if (!detect_primary_ipv4(iface, sizeof(iface), ip_addr, sizeof(ip_addr), &up)) {
         return;
     }
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr != NULL && ifa->ifa_addr->sa_family == AF_INET) {
-            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-            char ip_addr[16]; // Allocate enough space for an IPv6 address
-            snprintf(ip_addr, sizeof(ip_addr), "%s", inet_ntoa(addr->sin_addr));
 
-            if (0 != strcmp(ifa->ifa_name, "lo")) {
-                print_info("Local IP", "%s", 20, 30, ip_addr);
-                break;
-	    }
-        }
+    print_info("Local IP", "%s", 20, 30, ip_addr);
+}
+
+void get_net() {
+    char iface[64] = "";
+    char local_ip[16] = "";
+    char public_ip[128] = "";
+    char public_ip_display[128] = "";
+    bool up = false;
+
+    if (!detect_primary_ipv4(iface, sizeof(iface), local_ip, sizeof(local_ip), &up)) {
+        print_info("Net", "Disconnected", 20, 30);
+        return;
     }
-    freeifaddrs(ifaddr);
+
+    const char *state = up ? "up" : "down";
+    if (get_public_ip(public_ip, sizeof(public_ip))) {
+        if (g_userConfig.network_show_full_public_ip) {
+            snprintf(public_ip_display, sizeof(public_ip_display), "%s", public_ip);
+        } else {
+            mask_public_ip(public_ip, public_ip_display, sizeof(public_ip_display));
+        }
+
+        print_info("Net", "%s (%s) | local %s | public %s", 20, 30, iface, state, local_ip, public_ip_display);
+    } else {
+        print_info("Net", "%s (%s) | local %s | public unavailable", 20, 30, iface, state, local_ip);
+    }
 }
 
 void get_battery() {
