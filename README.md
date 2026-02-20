@@ -25,6 +25,10 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - Shell  
 - Terminal  
 - Desktop environment  
+- Window manager  
+- Display server (Wayland/X11)  
+- Battery level  
+- GPU  
 - Username  
 - Memory  
 - Signal Handling for Window Resize, automatically updates display with terminal resizing (`SIGWINCH`)  
@@ -126,7 +130,7 @@ You can use the `install-config.sh` script to create a configuration file for cu
 ### Example `cupidfetch.conf`
 ```ini
 # List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de ip memory cpu storage
+modules = hostname username distro linux_kernel uptime pkg term shell de wm display_server ip battery gpu memory cpu storage
 
 # Memory display settings
 memory.unit-str = MB

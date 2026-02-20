@@ -149,6 +149,149 @@ static void format_duration_compact(unsigned long seconds, char *buffer, size_t 
     }
 }
 
+static bool is_drm_card_device(const char *name) {
+    if (strncmp(name, "card", 4) != 0) return false;
+    if (strchr(name, '-') != NULL) return false;
+
+    const char *suffix = name + 4;
+    if (*suffix == '\0') return false;
+
+    for (const char *p = suffix; *p; p++) {
+        if (!isdigit((unsigned char)*p)) return false;
+    }
+    return true;
+}
+
+static bool build_path3(
+    char *dest,
+    size_t dest_size,
+    const char *prefix,
+    const char *middle,
+    const char *suffix
+) {
+    size_t prefix_len = strlen(prefix);
+    size_t middle_len = strlen(middle);
+    size_t suffix_len = strlen(suffix);
+
+    if (prefix_len + middle_len + suffix_len + 1 > dest_size) {
+        return false;
+    }
+
+    memcpy(dest, prefix, prefix_len);
+    memcpy(dest + prefix_len, middle, middle_len);
+    memcpy(dest + prefix_len + middle_len, suffix, suffix_len);
+    dest[prefix_len + middle_len + suffix_len] = '\0';
+    return true;
+}
+
+static const char *gpu_vendor_name(const char *vendor_id) {
+    if (strcmp(vendor_id, "0x10de") == 0) return "NVIDIA";
+    if (strcmp(vendor_id, "0x8086") == 0) return "Intel";
+    if (strcmp(vendor_id, "0x1002") == 0) return "AMD";
+    if (strcmp(vendor_id, "0x1022") == 0) return "AMD";
+    if (strcmp(vendor_id, "0x13b5") == 0) return "ARM";
+    if (strcmp(vendor_id, "0x5143") == 0) return "Qualcomm";
+    if (strcmp(vendor_id, "0x1414") == 0) return "Microsoft";
+    return NULL;
+}
+
+static void append_csv_item(char *dest, size_t dest_size, const char *item) {
+    if (!item || !item[0]) return;
+
+    size_t dest_len = strlen(dest);
+    size_t item_len = strlen(item);
+
+    if (dest_len >= dest_size - 1) return;
+
+    if (dest_len > 0) {
+        if (dest_len + 2 >= dest_size) return;
+        dest[dest_len++] = ',';
+        dest[dest_len++] = ' ';
+        dest[dest_len] = '\0';
+    }
+
+    size_t max_copy = dest_size - 1 - dest_len;
+    if (item_len > max_copy) item_len = max_copy;
+    memcpy(dest + dest_len, item, item_len);
+    dest[dest_len + item_len] = '\0';
+}
+
+static bool detect_gpu_from_lspci(char *gpu_out, size_t gpu_out_size) {
+    FILE *fp = popen("lspci 2>/dev/null", "r");
+    if (!fp) return false;
+
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        if (!contains_icase(line, "vga compatible controller") &&
+            !contains_icase(line, "3d controller") &&
+            !contains_icase(line, "display controller") &&
+            !contains_icase(line, "render driver")) {
+            continue;
+        }
+
+        trim_newline(line);
+        char *desc = strstr(line, ": ");
+        desc = desc ? (desc + 2) : line;
+
+        strncpy(gpu_out, desc, gpu_out_size);
+        gpu_out[gpu_out_size - 1] = '\0';
+        pclose(fp);
+        return true;
+    }
+
+    pclose(fp);
+    return false;
+}
+
+static bool read_pci_slot_from_uevent(const char *drm_name, char *slot_out, size_t slot_out_size) {
+    char path[512];
+    if (!build_path3(path, sizeof(path), "/sys/class/drm/", drm_name, "/device/uevent")) {
+        return false;
+    }
+
+    FILE *fp = fopen(path, "r");
+    if (!fp) return false;
+
+    char line[256];
+    bool found = false;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "PCI_SLOT_NAME=", 14) == 0) {
+            char *value = line + 14;
+            trim_newline(value);
+            strncpy(slot_out, value, slot_out_size);
+            slot_out[slot_out_size - 1] = '\0';
+            found = slot_out[0] != '\0';
+            break;
+        }
+    }
+
+    fclose(fp);
+    return found;
+}
+
+static bool detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t gpu_out_size) {
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "lspci -s %s 2>/dev/null", pci_slot);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return false;
+
+    char line[512];
+    if (!fgets(line, sizeof(line), fp)) {
+        pclose(fp);
+        return false;
+    }
+    pclose(fp);
+
+    trim_newline(line);
+    char *desc = strstr(line, ": ");
+    desc = desc ? (desc + 2) : line;
+
+    strncpy(gpu_out, desc, gpu_out_size);
+    gpu_out[gpu_out_size - 1] = '\0';
+    return gpu_out[0] != '\0';
+}
+
 void get_hostname() {
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -542,6 +685,72 @@ void get_battery() {
     } else {
         print_info("Battery", "%lu%%", 20, 30, percent);
     }
+}
+
+void get_gpu() {
+    DIR *dir = opendir("/sys/class/drm");
+    char gpu_summary[256] = "";
+
+    if (dir) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (!is_drm_card_device(entry->d_name)) continue;
+
+            char lspci_desc[256] = "";
+            char pci_slot[64] = "";
+            if (read_pci_slot_from_uevent(entry->d_name, pci_slot, sizeof(pci_slot)) &&
+                detect_gpu_from_pci_slot(pci_slot, lspci_desc, sizeof(lspci_desc))) {
+                append_csv_item(gpu_summary, sizeof(gpu_summary), lspci_desc);
+                continue;
+            }
+
+            char path[512];
+            char vendor_id[64] = "";
+            char driver_link[512] = "";
+
+            if (build_path3(path, sizeof(path), "/sys/class/drm/", entry->d_name, "/device/vendor")) {
+                read_first_line(path, vendor_id, sizeof(vendor_id));
+            }
+
+            if (build_path3(path, sizeof(path), "/sys/class/drm/", entry->d_name, "/device/driver")) {
+                ssize_t n = readlink(path, driver_link, sizeof(driver_link) - 1);
+                if (n > 0) {
+                    driver_link[n] = '\0';
+                } else {
+                    driver_link[0] = '\0';
+                }
+            }
+
+            const char *vendor = (vendor_id[0] != '\0') ? gpu_vendor_name(vendor_id) : NULL;
+            const char *driver = NULL;
+            if (driver_link[0] != '\0') {
+                driver = strrchr(driver_link, '/');
+                driver = driver ? (driver + 1) : driver_link;
+            }
+
+            char item[640];
+            if (vendor && driver) {
+                snprintf(item, sizeof(item), "%s (%.600s)", vendor, driver);
+            } else if (vendor) {
+                snprintf(item, sizeof(item), "%s", vendor);
+            } else if (driver) {
+                snprintf(item, sizeof(item), "%.600s", driver);
+            } else {
+                continue;
+            }
+
+            append_csv_item(gpu_summary, sizeof(gpu_summary), item);
+        }
+        closedir(dir);
+    }
+
+    if (gpu_summary[0] == '\0') {
+        if (!detect_gpu_from_lspci(gpu_summary, sizeof(gpu_summary))) {
+            return;
+        }
+    }
+
+    print_info("GPU", "%s", 20, 30, gpu_summary);
 }
 
 void get_available_memory() {

@@ -58,6 +58,7 @@ void get_window_manager();
 void get_display_server();
 void get_local_ip();
 void get_battery();
+void get_gpu();
 void get_available_memory();
 void get_cpu();
 void get_available_storage();
