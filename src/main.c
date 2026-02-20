@@ -31,9 +31,10 @@ typedef struct {
 static distro_entry_t *g_knownDistros = NULL;
 static size_t g_numKnown = 0;
 static char g_forced_distro[128] = "";
+static bool g_json_output = false;
 
 static void print_usage(const char *progname) {
-    fprintf(stderr, "Usage: %s [--force-distro <distroname>]\n", progname);
+    fprintf(stderr, "Usage: %s [--force-distro <distroname>] [--json]\n", progname);
 }
 
 static bool parse_cli_args(int argc, char **argv) {
@@ -53,6 +54,11 @@ static bool parse_cli_args(int argc, char **argv) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             exit(EXIT_SUCCESS);
+        }
+
+        if (strcmp(argv[i], "--json") == 0) {
+            g_json_output = true;
+            continue;
         }
 
         fprintf(stderr, "Error: unknown argument '%s'\n", argv[i]);
@@ -401,12 +407,9 @@ void display_fetch() {
 		hostname[0] = '\0';
 	}
 
-	// Construct the username@hostname string
+    // Construct the username@hostname string
 	char user_host[512];
 	snprintf(user_host, sizeof(user_host), "%s@%s", username, hostname);
-
-    // Clear screen for a clean redraw
-    printf("\033[H\033[J");
 
     begin_info_capture();
 
@@ -415,6 +418,16 @@ void display_fetch() {
 	}
 
     end_info_capture();
+
+    if (g_json_output) {
+        render_json_output(user_host);
+        fflush(stdout);
+        return;
+    }
+
+    // Clear screen for a clean redraw
+    printf("\033[H\033[J");
+
     render_fetch_panel(detectedDistro, user_host);
 	fflush(stdout); // Ensure the buffer is flushed after each draw
 }
@@ -448,8 +461,10 @@ int main(int argc, char **argv) {
     char defPath[PATH_MAX];
     get_definitions_file_path(defPath, sizeof(defPath));
 
-    // Set up signal handlers.
-    setup_signal_handlers();
+    if (!g_json_output) {
+        // Set up signal handlers.
+        setup_signal_handlers();
+    }
 
     // Set up logging.
     if (!isatty(STDERR_FILENO))
@@ -490,6 +505,11 @@ int main(int argc, char **argv) {
 
     // Display system information initially.
     display_fetch();
+
+    if (g_json_output) {
+        epitaph();
+        return EXIT_SUCCESS;
+    }
 
     // Main loop.
     while (1) {

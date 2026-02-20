@@ -48,6 +48,7 @@ void print_cat(const char* distro);
 void begin_info_capture(void);
 void end_info_capture(void);
 void render_fetch_panel(const char *distro, const char *user_host);
+void render_json_output(const char *user_host);
 
 // modules.c
 void get_hostname();

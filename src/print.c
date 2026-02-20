@@ -9,6 +9,93 @@
 static bool g_capture_info = false;
 static char g_info_lines[MAX_CAPTURE_LINES][MAX_CAPTURE_LINE_LEN];
 static size_t g_info_line_count = 0;
+static char g_info_keys[MAX_CAPTURE_LINES][64];
+static char g_info_values[MAX_CAPTURE_LINES][384];
+static size_t g_info_kv_count = 0;
+
+static void make_json_key(const char *label, char *out, size_t out_size) {
+    if (!out || out_size == 0) return;
+
+    if (!label || !label[0]) {
+        snprintf(out, out_size, "unknown");
+        return;
+    }
+
+    size_t j = 0;
+    bool prev_underscore = false;
+
+    for (size_t i = 0; label[i] && j + 1 < out_size; i++) {
+        unsigned char c = (unsigned char)label[i];
+        if (isalnum(c)) {
+            out[j++] = (char)tolower(c);
+            prev_underscore = false;
+        } else if (!prev_underscore && j > 0) {
+            out[j++] = '_';
+            prev_underscore = true;
+        }
+    }
+
+    while (j > 0 && out[j - 1] == '_') {
+        j--;
+    }
+
+    if (j == 0) {
+        snprintf(out, out_size, "unknown");
+        return;
+    }
+
+    if (isdigit((unsigned char)out[0])) {
+        if (j + 1 < out_size) {
+            memmove(out + 1, out, j);
+            out[0] = '_';
+            j++;
+        }
+    }
+
+    out[j] = '\0';
+}
+
+static void print_json_escaped(const char *value) {
+    if (!value) {
+        printf("\"\"");
+        return;
+    }
+
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+        switch (*p) {
+            case '"':
+                printf("\\\"");
+                break;
+            case '\\':
+                printf("\\\\");
+                break;
+            case '\b':
+                printf("\\b");
+                break;
+            case '\f':
+                printf("\\f");
+                break;
+            case '\n':
+                printf("\\n");
+                break;
+            case '\r':
+                printf("\\r");
+                break;
+            case '\t':
+                printf("\\t");
+                break;
+            default:
+                if (*p < 0x20) {
+                    printf("\\u%04x", *p);
+                } else {
+                    putchar(*p);
+                }
+                break;
+        }
+    }
+    putchar('"');
+}
 
 struct DistroLogo {
     const char *name;
@@ -189,7 +276,7 @@ static const char *const logo_ubuntu[] = {
         "    ============:    .-===================.    .=============   ",
         "   ========:::==:    -====================-     -============   ",
         "   ======.     .=-   ======================     :============   ",
-        "   =====-       -=  .========================================   ",
+        "   =====-       -=  .=======================     :===========   ",
         "   ======.     .=-   ======================     :============   ",
         "   ========:.:==:    -=====================     -============   ",
         "    ============:    .====================.    .=============   ",
@@ -933,14 +1020,31 @@ void print_info(const char *key, const char *format, int align_key, int align_va
     if (g_capture_info) {
         char value_buffer[384];
         char line_buffer[MAX_CAPTURE_LINE_LEN];
+        char key_buffer[64];
 
         vsnprintf(value_buffer, sizeof(value_buffer), format, args);
         snprintf(line_buffer, sizeof(line_buffer), "%-*s: %s", align_key, key, value_buffer);
+        make_json_key(key, key_buffer, sizeof(key_buffer));
+        if (key_buffer[0] == '\0' || strcmp(key_buffer, "unknown") == 0) {
+            if (g_info_kv_count > 0 && g_info_keys[g_info_kv_count - 1][0] != '\0') {
+                strncpy(key_buffer, g_info_keys[g_info_kv_count - 1], sizeof(key_buffer) - 1);
+                key_buffer[sizeof(key_buffer) - 1] = '\0';
+            }
+        }
 
         if (g_info_line_count < MAX_CAPTURE_LINES) {
             strncpy(g_info_lines[g_info_line_count], line_buffer, MAX_CAPTURE_LINE_LEN - 1);
             g_info_lines[g_info_line_count][MAX_CAPTURE_LINE_LEN - 1] = '\0';
             g_info_line_count++;
+        }
+
+        if (g_info_kv_count < MAX_CAPTURE_LINES) {
+            strncpy(g_info_keys[g_info_kv_count], key_buffer, sizeof(g_info_keys[g_info_kv_count]) - 1);
+            g_info_keys[g_info_kv_count][sizeof(g_info_keys[g_info_kv_count]) - 1] = '\0';
+
+            strncpy(g_info_values[g_info_kv_count], value_buffer, sizeof(g_info_values[g_info_kv_count]) - 1);
+            g_info_values[g_info_kv_count][sizeof(g_info_values[g_info_kv_count]) - 1] = '\0';
+            g_info_kv_count++;
         }
     } else {
         printf("%-*s: ", align_key, key);
@@ -954,10 +1058,86 @@ void print_info(const char *key, const char *format, int align_key, int align_va
 void begin_info_capture(void) {
     g_capture_info = true;
     g_info_line_count = 0;
+    g_info_kv_count = 0;
 }
 
 void end_info_capture(void) {
     g_capture_info = false;
+}
+
+void render_json_output(const char *user_host) {
+    char base_keys[MAX_CAPTURE_LINES][64];
+    size_t base_counts[MAX_CAPTURE_LINES] = {0};
+    size_t base_key_count = 0;
+
+    printf("{\n");
+
+    printf("  \"user_host\": ");
+    print_json_escaped(user_host ? user_host : "");
+
+    for (size_t i = 0; i < g_info_kv_count; i++) {
+        char base_key[64];
+        strncpy(base_key, g_info_keys[i], sizeof(base_key) - 1);
+        base_key[sizeof(base_key) - 1] = '\0';
+        if (base_key[0] == '\0') {
+            snprintf(base_key, sizeof(base_key), "unknown");
+        }
+
+        size_t idx = base_key_count;
+        for (size_t j = 0; j < base_key_count; j++) {
+            if (strcmp(base_key, base_keys[j]) == 0) {
+                idx = j;
+                break;
+            }
+        }
+
+        if (idx == base_key_count && base_key_count < MAX_CAPTURE_LINES) {
+            strncpy(base_keys[base_key_count], base_key, sizeof(base_keys[base_key_count]) - 1);
+            base_keys[base_key_count][sizeof(base_keys[base_key_count]) - 1] = '\0';
+            base_counts[base_key_count] = 0;
+            base_key_count++;
+        }
+
+        size_t occurrence = 1;
+        if (idx < MAX_CAPTURE_LINES) {
+            base_counts[idx]++;
+            occurrence = base_counts[idx];
+        }
+
+        char unique_key[64];
+        strncpy(unique_key, base_key, sizeof(unique_key) - 1);
+        unique_key[sizeof(unique_key) - 1] = '\0';
+
+        if (occurrence > 1) {
+            char suffixed[64];
+            char suffix_num[32];
+            snprintf(suffix_num, sizeof(suffix_num), "%zu", occurrence);
+
+            size_t suffix_len = strlen(suffix_num);
+            size_t max_key_len = 0;
+            if (suffix_len + 1 < sizeof(suffixed)) {
+                max_key_len = sizeof(suffixed) - suffix_len - 2;
+            }
+
+            snprintf(
+                suffixed,
+                sizeof(suffixed),
+                "%.*s_%s",
+                (int)max_key_len,
+                base_key,
+                suffix_num
+            );
+            strncpy(unique_key, suffixed, sizeof(unique_key) - 1);
+            unique_key[sizeof(unique_key) - 1] = '\0';
+        }
+
+        printf(",\n  \"");
+        printf("%s", unique_key);
+        printf("\": ");
+        print_json_escaped(g_info_values[i]);
+    }
+
+    printf("\n}\n");
 }
 
 void render_fetch_panel(const char *distro, const char *user_host) {

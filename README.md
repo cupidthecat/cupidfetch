@@ -18,7 +18,7 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 **✔️ Fetches and displays various system details:**
 
 - Hostname  
-- Distribution (with **auto-add** for unknown distros — see below!)  
+- Distribution (with **auto-add** for unknown distros - see below!)  
 - Kernel version  
 - Uptime  
 - Package count  
@@ -108,6 +108,10 @@ sudo apt install git
      ```bash
      ./cupidfetch
      ```
+    - **JSON mode (script-friendly)**:
+       ```bash
+       ./cupidfetch --json
+       ```
    - **From anywhere** (optional):
      ```bash
      sudo mv cupidfetch /usr/local/bin
@@ -118,6 +122,12 @@ sudo apt install git
 
 5. **View the Output**:  
    Prints system info such as distro, kernel, uptime, etc., and displays ASCII art for recognized distros.
+
+### CLI Flags
+
+- `--json` prints a single JSON object and exits (no screen clear, no resize loop).
+- `--force-distro <name>` overrides detected distro for logo/display testing.
+- `-h`, `--help` shows usage.
 
 ## Configuration File
 
@@ -174,7 +184,7 @@ If you prefer **manual** updates (or want to tweak the auto-added lines), edit `
 DISTRO("ubuntu" , "Ubuntu" , "dpkg -l | tail -n+6 | wc -l")
 DISTRO("cupidOS", "cupidOS", "dpkg -l | tail -n+6 | wc -l")
 ```
-However, thanks to auto-add, you often won’t need to touch this file for new distros—cupidfetch will do it for you!
+However, thanks to auto-add, you often won’t need to touch this file for new distros-cupidfetch will do it for you!
 
 ## Log File
 
@@ -192,7 +202,7 @@ cupidfetch 2> /dev/null
 
 ## How to Contribute
 
-Everyone is welcome—beginner or expert!
+Everyone is welcome-beginner or expert!
 
 - **Discord:** [Join here](https://discord.gg/698GBkg2KR)  
 - Beginners: Great project to learn, ask questions, and try new ideas.  
