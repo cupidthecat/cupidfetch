@@ -22,16 +22,19 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - Kernel version  
 - Uptime  
 - Package count  
+- Package count (with distro command + package-manager fallback detection)  
 - Shell  
 - Terminal  
 - Desktop environment  
 - Window manager  
 - Display server (Wayland/X11)  
-- Network status (interface, local/public IP)  
+- Network status (interface state, local/public IP with IPv4/IPv6 local detection)  
 - Battery level  
 - GPU  
 - Username  
-- Memory  
+- Memory usage  
+- CPU model + usage  
+- Storage/disk usage per mount  
 - Signal Handling for Window Resize, automatically updates display with terminal resizing (`SIGWINCH`)  
 - And more
 

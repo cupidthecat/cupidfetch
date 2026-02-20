@@ -110,6 +110,118 @@ static bool read_ulong_file(const char *path, unsigned long *value) {
     return true;
 }
 
+static bool starts_with(const char *str, const char *prefix) {
+    if (!str || !prefix) return false;
+    size_t prefix_len = strlen(prefix);
+    return strncmp(str, prefix, prefix_len) == 0;
+}
+
+static char *trim_spaces(char *str) {
+    if (!str) return str;
+
+    while (*str && isspace((unsigned char)*str)) str++;
+    if (*str == '\0') return str;
+
+    char *end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end)) {
+        *end = '\0';
+        end--;
+    }
+
+    return str;
+}
+
+static bool executable_in_path(const char *name) {
+    if (!name || !name[0]) return false;
+
+    const char *path_env = getenv("PATH");
+    if (!path_env || !path_env[0]) return false;
+
+    char path_copy[4096];
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+
+    char *token = strtok(path_copy, ":");
+    while (token) {
+        char full[4352];
+        if (snprintf(full, sizeof(full), "%s/%s", token, name) > 0) {
+            if (access(full, X_OK) == 0) return true;
+        }
+        token = strtok(NULL, ":");
+    }
+
+    return false;
+}
+
+static bool run_command_first_line(const char *command, char *out, size_t out_size) {
+    if (!command || !command[0] || !out || out_size == 0) return false;
+
+    FILE *fp = popen(command, "r");
+    if (!fp) return false;
+
+    bool ok = fgets(out, out_size, fp) != NULL;
+    pclose(fp);
+    if (!ok) return false;
+
+    trim_newline(out);
+    char *trimmed = trim_spaces(out);
+    if (trimmed != out) {
+        memmove(out, trimmed, strlen(trimmed) + 1);
+    }
+    return out[0] != '\0';
+}
+
+static bool read_cpu_times(unsigned long long *idle_all, unsigned long long *total_all) {
+    FILE *fp = fopen("/proc/stat", "r");
+    if (!fp) return false;
+
+    char line[256];
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return false;
+    }
+    fclose(fp);
+
+    if (!starts_with(line, "cpu ")) return false;
+
+    unsigned long long user = 0, nice = 0, system = 0, idle = 0;
+    unsigned long long iowait = 0, irq = 0, softirq = 0, steal = 0;
+    unsigned long long guest = 0, guest_nice = 0;
+
+    int fields = sscanf(
+        line,
+        "cpu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
+        &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal, &guest, &guest_nice
+    );
+    if (fields < 4) return false;
+
+    *idle_all = idle + iowait;
+    *total_all = user + nice + system + idle + iowait + irq + softirq + steal + guest + guest_nice;
+    return true;
+}
+
+static bool detect_cpu_usage_percent(double *usage_out) {
+    unsigned long long idle1 = 0, total1 = 0;
+    unsigned long long idle2 = 0, total2 = 0;
+
+    if (!read_cpu_times(&idle1, &total1)) return false;
+    usleep(120000);
+    if (!read_cpu_times(&idle2, &total2)) return false;
+
+    if (total2 <= total1) return false;
+
+    unsigned long long total_delta = total2 - total1;
+    unsigned long long idle_delta = (idle2 >= idle1) ? (idle2 - idle1) : 0;
+    if (total_delta == 0) return false;
+
+    double usage = (double)(total_delta - idle_delta) * 100.0 / (double)total_delta;
+    if (usage < 0.0) usage = 0.0;
+    if (usage > 100.0) usage = 100.0;
+
+    *usage_out = usage;
+    return true;
+}
+
 static bool build_power_supply_path(
     char *dest,
     size_t dest_size,
@@ -292,7 +404,7 @@ static bool detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t
     return gpu_out[0] != '\0';
 }
 
-static bool detect_primary_ipv4(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
+static bool detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
     struct ifaddrs *ifaddr = NULL;
     struct ifaddrs *ifa;
 
@@ -303,26 +415,47 @@ static bool detect_primary_ipv4(char *iface_out, size_t iface_out_size, char *ip
     bool found = false;
     bool found_up = false;
     char iface_buf[64] = "";
-    char ip_buf[16] = "";
+    char ip_buf[INET6_ADDRSTRLEN] = "";
+    int found_family = 0;
 
     for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (ifa->ifa_addr == NULL) continue;
+
+        int family = ifa->ifa_addr->sa_family;
+        if (family != AF_INET && family != AF_INET6) continue;
         if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) continue;
 
-        struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-        const char *ip = inet_ntoa(addr->sin_addr);
-        if (!ip || strncmp(ip, "127.", 4) == 0) continue;
+        char ip[INET6_ADDRSTRLEN] = "";
+        if (family == AF_INET) {
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            if (!inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip))) continue;
+            if (strncmp(ip, "127.", 4) == 0) continue;
+        } else {
+            struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+            if (!inet_ntop(AF_INET6, &addr6->sin6_addr, ip, sizeof(ip))) continue;
+            if (strcmp(ip, "::1") == 0) continue;
+        }
 
         bool current_up = (ifa->ifa_flags & IFF_UP) != 0;
-        if (!found || (!found_up && current_up)) {
+        bool better_candidate = false;
+        if (!found) {
+            better_candidate = true;
+        } else if (!found_up && current_up) {
+            better_candidate = true;
+        } else if (found_family == AF_INET6 && family == AF_INET) {
+            better_candidate = true;
+        }
+
+        if (better_candidate) {
             strncpy(iface_buf, ifa->ifa_name, sizeof(iface_buf));
             iface_buf[sizeof(iface_buf) - 1] = '\0';
             strncpy(ip_buf, ip, sizeof(ip_buf));
             ip_buf[sizeof(ip_buf) - 1] = '\0';
             found = true;
             found_up = current_up;
+            found_family = family;
 
-            if (found_up) break;
+            if (found_up && found_family == AF_INET) break;
         }
     }
 
@@ -456,23 +589,40 @@ void get_package_count() {
     if (0) {}
     #include "../data/distros.def"
 
-    if (package_command == NULL) return;
+    static const struct {
+        const char *binary;
+        const char *count_command;
+    } fallback_pkg_managers[] = {
+        {"pacman", "pacman -Qq 2>/dev/null | wc -l"},
+        {"dpkg-query", "dpkg-query -f '.' -W 2>/dev/null | wc -c"},
+        {"rpm", "rpm -qa 2>/dev/null | wc -l"},
+        {"xbps-query", "xbps-query -l 2>/dev/null | wc -l"},
+        {"apk", "apk info 2>/dev/null | wc -l"},
+        {"equery", "equery list '*' 2>/dev/null | wc -l"},
+        {"nix-store", "nix-store --query --requisites /run/current-system/sw 2>/dev/null | wc -l"},
+        {"flatpak", "flatpak list --app 2>/dev/null | wc -l"},
+    };
 
-    // Run the package command and display the result
-    FILE* fp = popen(package_command, "r");
-    if (fp == NULL) {
-        cupid_log(LogType_ERROR, "popen failed for package command");
-        return;
+    char output[128] = "";
+    bool got_output = false;
+
+    if (package_command != NULL) {
+        got_output = run_command_first_line(package_command, output, sizeof(output));
     }
 
-    char output[100];
-    if (fgets(output, sizeof(output), fp) != NULL) {
-        // Remove everything but the first line (if there are other lines)
-        output[strcspn(output, "\n")] = 0;
+    if (!got_output) {
+        for (size_t i = 0; i < sizeof(fallback_pkg_managers) / sizeof(fallback_pkg_managers[0]); i++) {
+            if (!executable_in_path(fallback_pkg_managers[i].binary)) continue;
+            if (run_command_first_line(fallback_pkg_managers[i].count_command, output, sizeof(output))) {
+                got_output = true;
+                break;
+            }
+        }
+    }
+
+    if (got_output) {
         print_info("Package Count", "%s", 20, 30, output);
     }
-
-    pclose(fp);
 }
 
 void get_shell() {
@@ -615,10 +765,10 @@ void get_display_server() {
 // haha got ur ip
 void get_local_ip() {
     char iface[64] = "";
-    char ip_addr[16] = "";
+    char ip_addr[INET6_ADDRSTRLEN] = "";
     bool up = false;
 
-    if (!detect_primary_ipv4(iface, sizeof(iface), ip_addr, sizeof(ip_addr), &up)) {
+    if (!detect_primary_ip(iface, sizeof(iface), ip_addr, sizeof(ip_addr), &up)) {
         return;
     }
 
@@ -627,12 +777,12 @@ void get_local_ip() {
 
 void get_net() {
     char iface[64] = "";
-    char local_ip[16] = "";
+    char local_ip[INET6_ADDRSTRLEN] = "";
     char public_ip[128] = "";
     char public_ip_display[128] = "";
     bool up = false;
 
-    if (!detect_primary_ipv4(iface, sizeof(iface), local_ip, sizeof(local_ip), &up)) {
+    if (!detect_primary_ip(iface, sizeof(iface), local_ip, sizeof(local_ip), &up)) {
         print_info("Net", "Disconnected", 20, 30);
         return;
     }
@@ -949,52 +1099,64 @@ void get_cpu() {
         return;
     }
 
-    char line[100];
-    char model_name[100];
+    char line[256];
+    char model_name[160] = "";
     int num_cores = 0;
-    int num_threads = 0;
+    int siblings = 0;
+    int logical_threads = 0;
 
     while (fgets(line, sizeof(line), cpuinfo)) {
-        char* token = strtok(line, ":");
-        if (token != NULL) {
-            if (strstr(token, "model name") != NULL) {
-                // Extract CPU model name
-                char* model_value = strtok(NULL, ":");
-                if (model_value != NULL) {
-                    snprintf(model_name, sizeof(model_name), "%s", model_value);
-                    // Remove leading and trailing whitespaces
-                    size_t len = strlen(model_name);
-                    if (len > 0 && model_name[len - 1] == '\n') {
-                        model_name[len - 1] = '\0';  // Remove newline character
-                    }
+        if (starts_with(line, "processor")) {
+            logical_threads++;
+            continue;
+        }
 
-                    // You can keep this block to remove leading whitespaces
-                    char* start = model_name;
-                    while (*start && (*start == ' ' || *start == '\t')) {
-                        start++;
-                    }
-                    memmove(model_name, start, strlen(start) + 1);
-                }
-            } else if (strstr(token, "cpu cores") != NULL) {
-                // Extract number of CPU cores
-                char* cores_str = strtok(NULL, ":");
-                if (cores_str != NULL) {
-                    num_cores = atoi(cores_str);
-                }
-            } else if (strstr(token, "siblings") != NULL) {
-                // Extract number of threads (siblings)
-                char* threads_str = strtok(NULL, ":");
-                if (threads_str != NULL) {
-                    num_threads = atoi(threads_str);
-                }
+        char *sep = strchr(line, ':');
+        if (!sep) continue;
+        *sep = '\0';
+
+        char *key = trim_spaces(line);
+        char *value = trim_spaces(sep + 1);
+        if (!key || !value || value[0] == '\0') continue;
+
+        if (strcmp(key, "model name") == 0) {
+            if (model_name[0] == '\0') {
+                strncpy(model_name, value, sizeof(model_name));
+                model_name[sizeof(model_name) - 1] = '\0';
             }
+        } else if (strcmp(key, "cpu cores") == 0) {
+            int cores = atoi(value);
+            if (cores > num_cores) num_cores = cores;
+        } else if (strcmp(key, "siblings") == 0) {
+            int threads = atoi(value);
+            if (threads > siblings) siblings = threads;
         }
     }
 
     fclose(cpuinfo);
 
-    if (strlen(model_name) > 0 && num_cores > 0 && num_threads > 0) {
-        print_info("CPU Info", "Model: %s, Cores: %d, Threads: %d", 20, 30, model_name, num_cores, num_threads);
+    if (logical_threads <= 0 && siblings > 0) {
+        logical_threads = siblings;
+    }
+    if (num_cores <= 0 && logical_threads > 0) {
+        num_cores = logical_threads;
+    }
+
+    double cpu_usage = 0.0;
+    bool has_usage = detect_cpu_usage_percent(&cpu_usage);
+
+    if (model_name[0] != '\0' && num_cores > 0 && logical_threads > 0) {
+        if (has_usage) {
+            print_info("CPU", "%s (%dC/%dT, %.1f%%)", 20, 30, model_name, num_cores, logical_threads, cpu_usage);
+        } else {
+            print_info("CPU", "%s (%dC/%dT)", 20, 30, model_name, num_cores, logical_threads);
+        }
+    } else if (model_name[0] != '\0') {
+        if (has_usage) {
+            print_info("CPU", "%s (%.1f%%)", 20, 30, model_name, cpu_usage);
+        } else {
+            print_info("CPU", "%s", 20, 30, model_name);
+        }
     } else {
         cupid_log(LogType_ERROR, "Failed to retrieve CPU information");
     }
@@ -1044,17 +1206,21 @@ void get_available_storage() {
             continue;
         }
 
-        unsigned long available = stat.f_bavail * stat.f_frsize / g_userConfig.storage_unit_size;
-        unsigned long total = stat.f_blocks * stat.f_frsize / g_userConfig.storage_unit_size;
+        unsigned long long total_bytes = (unsigned long long)stat.f_blocks * (unsigned long long)stat.f_frsize;
+        unsigned long long available_bytes = (unsigned long long)stat.f_bavail * (unsigned long long)stat.f_frsize;
+
+        unsigned long total = (unsigned long)(total_bytes / g_userConfig.storage_unit_size);
+        unsigned long available = (unsigned long)(available_bytes / g_userConfig.storage_unit_size);
+        unsigned long used = (total > available) ? (total - available) : 0;
+        unsigned long usage_percent = total > 0 ? (used * 100UL) / total : 0;
 
         if (total == 0) continue;
 
         print_info(
-            first ? "Storage Information" : "",
-            "%s: %lu %s / %lu %s",
+            first ? "Storage" : "",
+            "%s: %lu/%lu %s (%lu%%)",
             20, 30,
-            mnt_point, available, g_userConfig.storage_unit,
-            total, g_userConfig.storage_unit
+            mnt_point, used, total, g_userConfig.storage_unit, usage_percent
         );
         first = false;
     }
