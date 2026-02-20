@@ -22,21 +22,30 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - Kernel version  
 - Uptime  
 - Package count  
+- Package count (with distro command + package-manager fallback detection)  
 - Shell  
 - Terminal  
 - Desktop environment  
+- Window manager  
+- Display server (Wayland/X11)  
+- Network status (interface state, local/public IP with IPv4/IPv6 local detection)  
+- Battery level  
+- GPU  
 - Username  
-- Memory  
+- Memory usage  
+- CPU model + usage  
+- Storage/disk usage per mount  
 - Signal Handling for Window Resize, automatically updates display with terminal resizing (`SIGWINCH`)  
 - And more
 
 **✔️ Auto-add unknown distros to `distros.def`:**  
 If cupidfetch detects an unrecognized distro in `/etc/os-release`, it automatically inserts a new line into `distros.def` (under an "auto added" section) so the distro becomes recognized in subsequent runs.  
 
-**⬜ Enhance visual representation (soon):**  
+**✔️ Per-distro ASCII logos with truecolor + fallback:**
 
-- ASCII art for distributions  
-- Unicode icons  
+- Shows distro-specific ASCII logos for common distros (e.g., Ubuntu, Debian, Arch, Fedora, Manjaro, Alpine)
+- Uses truecolor logo tint when terminal supports it (`COLORTERM=truecolor` or `24bit`)
+- Falls back to a generic logo when distro art is unavailable
 
 **✔️ Built for beginners:**  
 
@@ -126,7 +135,7 @@ You can use the `install-config.sh` script to create a configuration file for cu
 ### Example `cupidfetch.conf`
 ```ini
 # List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de ip memory cpu storage
+modules = hostname username distro linux_kernel uptime pkg term shell de wm display_server net ip battery gpu memory cpu storage
 
 # Memory display settings
 memory.unit-str = MB
@@ -135,6 +144,10 @@ memory.unit-size = 1000000
 # Storage display settings
 storage.unit-str = GB
 storage.unit-size = 1000000000
+
+# Network display settings
+# false = mask public IP (default), true = show full public IP
+network.show-full-public-ip = false
 ```
 Adjust as needed; e.g., switch units to test different scale factors.
 
@@ -147,6 +160,12 @@ Whenever cupidfetch encounters a distro that isn’t listed in `data/distros.def
 3. Re-parses `distros.def`, so subsequent runs show the proper distro name.
 
 > **Note**: The default package command is set to `pacman -Q | wc -l`. If your newly added distro uses a different package manager (e.g., `dpkg`, `dnf`, or something else), you might want to edit `distros.def` manually to change the package count command.
+
+## Logo Rendering
+
+- `cupidfetch` now picks a logo by detected distro name.
+- If your terminal supports truecolor, logos are rendered with distro-tinted 24-bit ANSI color.
+- If no distro-specific logo exists, `cupidfetch` prints a generic fallback logo instead of failing.
 
 ## Adding Support Manually
 

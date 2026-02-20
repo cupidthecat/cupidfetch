@@ -30,6 +30,37 @@ typedef struct {
 // We'll store them in a global or static array in memory at runtime
 static distro_entry_t *g_knownDistros = NULL;
 static size_t g_numKnown = 0;
+static char g_forced_distro[128] = "";
+
+static void print_usage(const char *progname) {
+    fprintf(stderr, "Usage: %s [--force-distro <distroname>]\n", progname);
+}
+
+static bool parse_cli_args(int argc, char **argv) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--force-distro") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '\0') {
+                fprintf(stderr, "Error: --force-distro requires a distro name\n");
+                return false;
+            }
+
+            strncpy(g_forced_distro, argv[i + 1], sizeof(g_forced_distro) - 1);
+            g_forced_distro[sizeof(g_forced_distro) - 1] = '\0';
+            i++;
+            continue;
+        }
+
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            exit(EXIT_SUCCESS);
+        }
+
+        fprintf(stderr, "Error: unknown argument '%s'\n", argv[i]);
+        return false;
+    }
+
+    return true;
+}
 
 static void parse_distros_def(const char *path)
 {
@@ -282,6 +313,10 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
 
 const char* detect_linux_distro()
 {
+    if (g_forced_distro[0] != '\0') {
+        return g_forced_distro;
+    }
+
     // 1) Read /etc/os-release
     FILE* os_release = fopen("/etc/os-release", "r");
     if (!os_release) {
@@ -370,25 +405,17 @@ void display_fetch() {
 	char user_host[512];
 	snprintf(user_host, sizeof(user_host), "%s@%s", username, hostname);
 
-	// Calculate terminal width and center position
-	int totalWidth = get_terminal_width();
-	int textWidth = strlen(user_host);
-	int spaces = (totalWidth > textWidth) ? (totalWidth - textWidth) / 2 : 0;
+    // Clear screen for a clean redraw
+    printf("\033[H\033[J");
 
-	// Clear screen and display username@hostname in the center
-	printf("\033[H\033[J"); // Clear screen for a clean redraw
-	printf("\n%*s%s\n", spaces + textWidth, "", user_host);
-
-	// Display cat ASCII art based on the detected distribution
-	print_cat(detectedDistro);
-
-	// Display system information based on user configuration
-	printf("\n");
-	printf("-----------------------------------------\n");
+    begin_info_capture();
 
 	for (size_t i = 0; g_userConfig.modules[i]; i++) {
 		g_userConfig.modules[i]();
 	}
+
+    end_info_capture();
+    render_fetch_panel(detectedDistro, user_host);
 	fflush(stdout); // Ensure the buffer is flushed after each draw
 }
 
@@ -408,7 +435,12 @@ void setup_signal_handlers() {
 	}
 }
 
-int main() {
+int main(int argc, char **argv) {
+    if (!parse_cli_args(argc, argv)) {
+        print_usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
     // Initialize configuration with defaults.
     init_g_config();
     g_log = NULL;

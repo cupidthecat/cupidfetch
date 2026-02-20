@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -30,6 +31,7 @@ struct CupidConfig {
     unsigned long memory_unit_size;
     char storage_unit[MEMORY_UNIT_LEN];
     unsigned long storage_unit_size;
+    bool network_show_full_public_ip;
 };
 
 typedef enum {
@@ -43,6 +45,9 @@ typedef enum {
 int get_terminal_width();
 void print_info(const char *key, const char *format, int align_key, int align_value, ...);
 void print_cat(const char* distro);
+void begin_info_capture(void);
+void end_info_capture(void);
+void render_fetch_panel(const char *distro, const char *user_host);
 
 // modules.c
 void get_hostname();
@@ -54,7 +59,12 @@ void get_package_count();
 void get_shell();
 void get_terminal();
 void get_desktop_environment();
+void get_window_manager();
+void get_display_server();
+void get_net();
 void get_local_ip();
+void get_battery();
+void get_gpu();
 void get_available_memory();
 void get_cpu();
 void get_available_storage();

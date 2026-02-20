@@ -23,24 +23,69 @@ struct module string_to_module[] = {
     {"term", get_terminal},
     {"shell", get_shell},
     {"de", get_desktop_environment},
+    {"desktop_environment", get_desktop_environment},
+    {"wm", get_window_manager},
+    {"window_manager", get_window_manager},
+    {"display", get_display_server},
+    {"display_server", get_display_server},
+    {"net", get_net},
+    {"network", get_net},
     {"ip", get_local_ip},
+    {"battery", get_battery},
+    {"gpu", get_gpu},
     {"memory", get_available_memory},
     {"storage", get_available_storage},
     {"cpu", get_cpu},
 };
+
+static bool eq_icase(const char *a, const char *b) {
+    if (!a || !b) return false;
+
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
+            return false;
+        }
+        a++;
+        b++;
+    }
+
+    return *a == '\0' && *b == '\0';
+}
+
+static bool parse_bool_value(const char *value, bool fallback) {
+    if (!value) return fallback;
+
+    if (strcmp(value, "1") == 0 ||
+        eq_icase(value, "true") ||
+        eq_icase(value, "yes") ||
+        eq_icase(value, "on")) {
+        return true;
+    }
+
+    if (strcmp(value, "0") == 0 ||
+        eq_icase(value, "false") ||
+        eq_icase(value, "no") ||
+        eq_icase(value, "off")) {
+        return false;
+    }
+
+    return fallback;
+}
 
 void init_g_config() {
     // Set up the default configuration.
     struct CupidConfig cfg_ = {
         .modules = { get_hostname, get_username, get_distro, get_linux_kernel,
                      get_uptime, get_package_count, get_terminal, get_shell,
-                     get_desktop_environment, get_local_ip, get_available_memory, get_cpu,
+                     get_desktop_environment, get_window_manager, get_display_server,
+                     get_net, get_local_ip, get_battery, get_gpu, get_available_memory, get_cpu,
                      get_available_storage,
                      NULL },
         .memory_unit = "MB",
         .memory_unit_size = 1000000,
         .storage_unit = "GB",
         .storage_unit_size = 1000000000,
+        .network_show_full_public_ip = false,
     };
     g_userConfig = cfg_;
 }
@@ -97,6 +142,13 @@ void load_config_file(const char* config_path, struct CupidConfig *config) {
     if (stor_unit_size_str) {
         config->storage_unit_size = atol(stor_unit_size_str);
     }
+
+    /* --- Load network settings --- */
+    const char *show_public_ip = cupidconf_get(conf, "network.show-full-public-ip");
+    config->network_show_full_public_ip = parse_bool_value(
+        show_public_ip,
+        config->network_show_full_public_ip
+    );
 
     cupidconf_free(conf);
 }
