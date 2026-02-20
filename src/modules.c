@@ -889,6 +889,29 @@ void get_cpu() {
     }
 }
 
+static bool should_skip_storage_mount(const char *device, const char *mnt_point, const char *fs_type) {
+    static const char *ignored_fs[] = {
+        "proc", "sysfs", "tmpfs", "devtmpfs", "devpts", "cgroup", "cgroup2",
+        "pstore", "securityfs", "debugfs", "tracefs", "configfs", "overlay",
+        "squashfs", "nsfs", "fusectl", "mqueue", "autofs", "ramfs"
+    };
+
+    for (size_t i = 0; i < sizeof(ignored_fs) / sizeof(ignored_fs[0]); i++) {
+        if (strcmp(fs_type, ignored_fs[i]) == 0) return true;
+    }
+
+    if (strncmp(mnt_point, "/snap", 5) == 0 ||
+        strncmp(mnt_point, "/var/lib/snapd/snap", 19) == 0) {
+        return true;
+    }
+
+    if (strncmp(device, "/dev/loop", 9) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
 void get_available_storage() {
     FILE* mount_file = fopen("/proc/mounts", "r");
     if (mount_file == NULL) {
@@ -899,6 +922,10 @@ void get_available_storage() {
     bool first = true;
     char device[256], mnt_point[256], fs_type[256];
     while (fscanf(mount_file, "%255s %255s %255s %*s %*d %*d", device, mnt_point, fs_type) == 3) {
+        if (should_skip_storage_mount(device, mnt_point, fs_type)) {
+            continue;
+        }
+
         struct statvfs stat;
 
         if (statvfs(mnt_point, &stat) != 0) {
