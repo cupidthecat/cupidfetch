@@ -13,6 +13,10 @@
 
 cupidfetch is a system information retrieval tool written in C for Linux systems. It's a beginner-friendly, work-in-progress hobby project aimed at learning and exploring programming concepts.
 
+## Demo
+
+![demo](images/demo.png)
+
 ## Features
 
 **✔️ Fetches and displays various system details:**

@@ -164,6 +164,13 @@ static bool terminal_supports_truecolor(void) {
     return strstr(ct, "truecolor") != NULL || strstr(ct, "24bit") != NULL;
 }
 
+static int rgb_to_ansi256(unsigned char r, unsigned char g, unsigned char b) {
+    int r6 = (int)((r * 5U) / 255U);
+    int g6 = (int)((g * 5U) / 255U);
+    int b6 = (int)((b * 5U) / 255U);
+    return 16 + (36 * r6) + (6 * g6) + b6;
+}
+
 static void print_logo_lines(
     const char *const *lines,
     size_t line_count,
@@ -178,7 +185,8 @@ static void print_logo_lines(
         if (use_truecolor) {
             printf("\033[38;2;%u;%u;%um%s\033[0m\n", (unsigned)r, (unsigned)g, (unsigned)b, lines[i]);
         } else {
-            printf("%s\n", lines[i]);
+            int color_256 = rgb_to_ansi256(r, g, b);
+            printf("\033[38;5;%dm%s\033[0m\n", color_256, lines[i]);
         }
     }
 }
@@ -195,7 +203,59 @@ static void print_logo_line_inline(
     if (use_truecolor) {
         printf("\033[38;2;%u;%u;%um%s\033[0m", (unsigned)r, (unsigned)g, (unsigned)b, line);
     } else {
+        int color_256 = rgb_to_ansi256(r, g, b);
+        printf("\033[38;5;%dm%s\033[0m", color_256, line);
+    }
+}
+
+static void print_info_line_inline(
+    const char *line,
+    bool use_truecolor,
+    unsigned char r,
+    unsigned char g,
+    unsigned char b
+) {
+    if (!line) return;
+
+    const char *sep = strstr(line, ": ");
+    if (!sep) {
         printf("%s", line);
+        return;
+    }
+
+    size_t key_len = (size_t)(sep - line);
+    const char *rest = sep;
+
+    if (use_truecolor) {
+        printf("\033[38;2;%u;%u;%um%.*s\033[0m%s", (unsigned)r, (unsigned)g, (unsigned)b, (int)key_len, line, rest);
+    } else {
+        printf("\033[1;36m%.*s\033[0m%s", (int)key_len, line, rest);
+    }
+}
+
+static void make_palette_row(int base, char *out, size_t out_size) {
+    if (!out || out_size == 0) return;
+
+    size_t used = 0;
+    out[0] = '\0';
+
+    for (int i = 0; i < 8; i++) {
+        int color = base + i;
+        int written = snprintf(
+            out + used,
+            out_size - used,
+            "\033[48;5;%dm    \033[0m",
+            color
+        );
+        if (written < 0 || (size_t)written >= out_size - used) {
+            break;
+        }
+        used += (size_t)written;
+
+        if (i < 7 && used + 1 < out_size) {
+            out[used++] = ' ';
+            out[used] = '\0';
+        }
     }
 }
 
@@ -1154,8 +1214,15 @@ void render_fetch_panel(const char *distro, const char *user_host) {
             printf("%s\n", user_host);
         }
         for (size_t i = 0; i < g_info_line_count; i++) {
-            printf("%s\n", g_info_lines[i]);
+            print_info_line_inline(g_info_lines[i], use_truecolor, logo->r, logo->g, logo->b);
+            printf("\n");
         }
+
+        char palette_row_1[256];
+        char palette_row_2[256];
+        make_palette_row(0, palette_row_1, sizeof(palette_row_1));
+        make_palette_row(8, palette_row_2, sizeof(palette_row_2));
+        printf("\n%s\n%s\n", palette_row_1, palette_row_2);
         return;
     }
 
@@ -1180,6 +1247,26 @@ void render_fetch_panel(const char *distro, const char *user_host) {
         append_wrapped_line(g_info_lines[i], right_width, right_lines, &right_count, MAX_RENDER_LINES);
     }
 
+    char palette_row_1[256];
+    char palette_row_2[256];
+    make_palette_row(0, palette_row_1, sizeof(palette_row_1));
+    make_palette_row(8, palette_row_2, sizeof(palette_row_2));
+
+    if (right_count < MAX_RENDER_LINES) {
+        right_lines[right_count][0] = '\0';
+        right_count++;
+    }
+    if (right_count < MAX_RENDER_LINES) {
+        strncpy(right_lines[right_count], palette_row_1, MAX_CAPTURE_LINE_LEN - 1);
+        right_lines[right_count][MAX_CAPTURE_LINE_LEN - 1] = '\0';
+        right_count++;
+    }
+    if (right_count < MAX_RENDER_LINES) {
+        strncpy(right_lines[right_count], palette_row_2, MAX_CAPTURE_LINE_LEN - 1);
+        right_lines[right_count][MAX_CAPTURE_LINE_LEN - 1] = '\0';
+        right_count++;
+    }
+
     size_t right_rows = right_count;
     size_t total_rows = logo->line_count > right_rows ? logo->line_count : right_rows;
 
@@ -1197,7 +1284,7 @@ void render_fetch_panel(const char *distro, const char *user_host) {
         printf("   ");
 
         if (row < right_count) {
-            printf("%s", right_lines[row]);
+            print_info_line_inline(right_lines[row], use_truecolor, logo->r, logo->g, logo->b);
         }
 
         printf("\n");
