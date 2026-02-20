@@ -84,6 +84,54 @@ static const char *basename_or_self(const char *path) {
     return base ? (base + 1) : path;
 }
 
+static bool read_first_line(const char *path, char *buffer, size_t size) {
+    FILE *file = fopen(path, "r");
+    if (!file) return false;
+
+    if (!fgets(buffer, size, file)) {
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+    trim_newline(buffer);
+    return true;
+}
+
+static bool read_ulong_file(const char *path, unsigned long *value) {
+    char line[64];
+    if (!read_first_line(path, line, sizeof(line))) return false;
+
+    char *endptr = NULL;
+    errno = 0;
+    unsigned long parsed = strtoul(line, &endptr, 10);
+    if (errno != 0 || endptr == line) return false;
+
+    *value = parsed;
+    return true;
+}
+
+static bool build_power_supply_path(
+    char *dest,
+    size_t dest_size,
+    const char *entry_name,
+    const char *suffix
+) {
+    const char prefix[] = "/sys/class/power_supply/";
+    size_t prefix_len = sizeof(prefix) - 1;
+    size_t entry_len = strlen(entry_name);
+    size_t suffix_len = strlen(suffix);
+
+    if (prefix_len + entry_len + suffix_len + 1 > dest_size) {
+        return false;
+    }
+
+    memcpy(dest, prefix, prefix_len);
+    memcpy(dest + prefix_len, entry_name, entry_len);
+    memcpy(dest + prefix_len + entry_len, suffix, suffix_len);
+    dest[prefix_len + entry_len + suffix_len] = '\0';
+    return true;
+}
+
 void get_hostname() {
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -330,6 +378,89 @@ void get_local_ip() {
         }
     }
     freeifaddrs(ifaddr);
+}
+
+void get_battery() {
+    DIR *dir = opendir("/sys/class/power_supply");
+    if (!dir) return;
+
+    struct dirent *entry;
+    unsigned long cap_sum = 0;
+    size_t cap_count = 0;
+    unsigned long energy_now_sum = 0;
+    unsigned long energy_full_sum = 0;
+    bool found_battery = false;
+    char battery_status[64] = "";
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+
+        char path[512];
+        char type[64];
+
+        if (!build_power_supply_path(path, sizeof(path), entry->d_name, "/type")) continue;
+
+        if (!read_first_line(path, type, sizeof(type))) continue;
+        if (strcmp(type, "Battery") != 0) continue;
+
+        found_battery = true;
+
+        if (battery_status[0] == '\0') {
+            if (build_power_supply_path(path, sizeof(path), entry->d_name, "/status")) {
+                read_first_line(path, battery_status, sizeof(battery_status));
+            }
+        }
+
+        unsigned long capacity = 0;
+        if (build_power_supply_path(path, sizeof(path), entry->d_name, "/capacity") &&
+            read_ulong_file(path, &capacity)) {
+            cap_sum += capacity;
+            cap_count++;
+            continue;
+        }
+
+        char now_path[512];
+        char full_path[512];
+        unsigned long now_val = 0;
+        unsigned long full_val = 0;
+
+        bool have_energy_paths =
+            build_power_supply_path(now_path, sizeof(now_path), entry->d_name, "/energy_now") &&
+            build_power_supply_path(full_path, sizeof(full_path), entry->d_name, "/energy_full");
+
+        if (!have_energy_paths || !read_ulong_file(now_path, &now_val) || !read_ulong_file(full_path, &full_val)) {
+            if (!build_power_supply_path(now_path, sizeof(now_path), entry->d_name, "/charge_now") ||
+                !build_power_supply_path(full_path, sizeof(full_path), entry->d_name, "/charge_full")) {
+                continue;
+            }
+        }
+
+        if (read_ulong_file(now_path, &now_val) && read_ulong_file(full_path, &full_val) && full_val > 0) {
+            energy_now_sum += now_val;
+            energy_full_sum += full_val;
+        }
+    }
+
+    closedir(dir);
+
+    if (!found_battery) return;
+
+    unsigned long percent = 0;
+    if (cap_count > 0) {
+        percent = cap_sum / cap_count;
+    } else if (energy_full_sum > 0) {
+        percent = (energy_now_sum * 100UL) / energy_full_sum;
+    } else {
+        return;
+    }
+
+    if (percent > 100UL) percent = 100UL;
+
+    if (battery_status[0] != '\0') {
+        print_info("Battery", "%lu%% (%s)", 20, 30, percent, battery_status);
+    } else {
+        print_info("Battery", "%lu%%", 20, 30, percent);
+    }
 }
 
 void get_available_memory() {
