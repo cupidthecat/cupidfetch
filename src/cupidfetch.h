@@ -7,7 +7,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <ifaddrs.h>
-#include <libgen.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -40,12 +39,6 @@ typedef enum {
     LogType_CRITICAL = 3
 } LogType;
 
-enum session_kind {
-    SESSION_UNKNOWN = 0,
-    SESSION_X11,
-    SESSION_WAYLAND
-};
-
 // print.c
 int get_terminal_width();
 void print_info(const char *key, const char *format, int align_key, int align_value, ...);
@@ -61,21 +54,14 @@ void get_package_count();
 void get_shell();
 void get_terminal();
 void get_desktop_environment();
+void get_window_manager();
+void get_display_server();
 void get_local_ip();
 void get_available_memory();
 void get_cpu();
 void get_available_storage();
-void get_window_manager();
 const char* get_home_directory();
-void get_session_type();
-void get_battery();
 
-/* Returns detected session kind based on env vars. */
-enum session_kind detect_session_kind(void);
-
-/* Fills buf with the active WM/compositor name (e.g., "i3", "KWin", "sway", "Hyprland").
-   Returns 1 on success, 0 if unknown. */
-int detect_window_manager(char *buf, size_t buflen);
 // config.c
 extern struct CupidConfig g_userConfig;
 void init_g_config();
@@ -89,7 +75,5 @@ void cupid_log(LogType ltp, const char *format, ...);
 extern FILE *g_log;
 const char* detect_linux_distro();
 void epitaph();
-void get_definitions_file_path(char *resolvedBuf, size_t size);
-void parse_distros_def(const char *path);
 
 #endif // CUPIDFETCH_H

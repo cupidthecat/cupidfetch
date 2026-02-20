@@ -22,13 +22,16 @@ struct module string_to_module[] = {
     {"pkg", get_package_count},
     {"term", get_terminal},
     {"shell", get_shell},
+    {"de", get_desktop_environment},
+    {"desktop_environment", get_desktop_environment},
+    {"wm", get_window_manager},
+    {"window_manager", get_window_manager},
+    {"display", get_display_server},
+    {"display_server", get_display_server},
     {"ip", get_local_ip},
     {"memory", get_available_memory},
     {"storage", get_available_storage},
     {"cpu", get_cpu},
-    {"wm", get_window_manager},
-    {"session", get_session_type},
-    {"battery", get_battery},
 };
 
 void init_g_config() {
@@ -36,7 +39,9 @@ void init_g_config() {
     struct CupidConfig cfg_ = {
         .modules = { get_hostname, get_username, get_distro, get_linux_kernel,
                      get_uptime, get_package_count, get_terminal, get_shell,
-                     get_available_storage, get_window_manager, get_session_type, get_battery,
+                     get_desktop_environment, get_window_manager, get_display_server,
+                     get_local_ip, get_available_memory, get_cpu,
+                     get_available_storage,
                      NULL },
         .memory_unit = "MB",
         .memory_unit_size = 1000000,
