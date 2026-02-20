@@ -1,18 +1,19 @@
 CUPID_LIBS=-Ilibs
 CUPID_DEV=-Wall -pedantic --std=c99 -D_POSIX_C_SOURCE=200112L -D_DEFAULT_SOURCE
+SRC_FILES=$(shell find src -type f -name '*.c')
 
 all: clean cupidfetch
 
-cupidfetch: src/*.c libs/cupidconf.c
+cupidfetch: $(SRC_FILES) libs/cupidconf.c
 	$(CC) -o cupidfetch $^ $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-dev: src/*.c libs/cupidconf.c
+dev: $(SRC_FILES) libs/cupidconf.c
 	$(CC) -o cupidfetch $^ $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-asan: src/*.c libs/cupidconf.c
+asan: $(SRC_FILES) libs/cupidconf.c
 	$(CC) -o cupidfetch $^ -fsanitize=address $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-ubsan: src/*.c libs/cupidconf.c
+ubsan: $(SRC_FILES) libs/cupidconf.c
 	$(CC) -o cupidfetch $^ -fsanitize=undefined $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 .PHONY: clean
