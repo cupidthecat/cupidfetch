@@ -4,6 +4,8 @@
 #include <locale.h>
 #include <wchar.h>
 
+extern int wcwidth(wchar_t wc);
+
 #define MAX_CAPTURE_LINES 256
 #define MAX_CAPTURE_LINE_LEN 512
 #define MAX_RENDER_LINES 1024
@@ -162,16 +164,6 @@ static void format_aligned_key(const char *key, int align_key, char *out, size_t
         pad_spaces--;
     }
     out[used] = '\0';
-}
-
-static bool env_truthy(const char *value) {
-    if (!value || !value[0]) return false;
-
-    return strcmp(value, "1") == 0 ||
-           strcasecmp(value, "true") == 0 ||
-           strcasecmp(value, "yes") == 0 ||
-           strcasecmp(value, "on") == 0 ||
-           strcasecmp(value, "always") == 0;
 }
 
 static bool env_falsey(const char *value) {
@@ -660,7 +652,6 @@ static void append_wrapped_line(
 }
 
 static const struct DistroLogo *find_logo_for_distro(const char *distro);
-static size_t logo_max_width(const struct DistroLogo *logo);
 
 static const char *const logo_ubuntu[] = {
         "                                                                ",
@@ -1395,18 +1386,6 @@ static const struct DistroLogo *find_logo_for_distro(const char *distro) {
     };
 
     return &fallback_logo;
-}
-
-static size_t logo_max_width(const struct DistroLogo *logo) {
-    if (!logo || !logo->lines || logo->line_count == 0) return 0;
-
-    size_t max_width = 0;
-    for (size_t i = 0; i < logo->line_count; i++) {
-        size_t width = utf8_display_width(logo->lines[i]);
-        if (width > max_width) max_width = width;
-    }
-
-    return max_width;
 }
 
 int get_terminal_width() {
