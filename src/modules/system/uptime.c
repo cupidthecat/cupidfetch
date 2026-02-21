@@ -1,19 +1,14 @@
 #include "../../cupidfetch.h"
+#include <sys/sysinfo.h>
 
 void get_uptime() {
-    FILE* uptime_file = fopen("/proc/uptime", "r");
-    if (uptime_file == NULL) {
-        cupid_log(LogType_ERROR, "couldn't open /proc/uptime");
+    struct sysinfo info;
+    if (sysinfo(&info) != 0) {
+        cupid_log(LogType_ERROR, "couldn't read uptime from sysinfo");
         return;
     }
 
-    double uptime;
-    if (fscanf(uptime_file, "%lf", &uptime) != 1) {
-        cupid_log(LogType_ERROR, "couldn't read uptime from /proc/uptime");
-        fclose(uptime_file);
-        return;
-    }
-    fclose(uptime_file);
+    long uptime = info.uptime;
 
     int days = (int)uptime / (60 * 60 * 24);
     int hours = ((int)uptime % (60 * 60 * 24)) / (60 * 60);

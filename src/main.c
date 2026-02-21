@@ -33,6 +33,9 @@ static distro_entry_t *g_knownDistros = NULL;
 static size_t g_numKnown = 0;
 static char g_forced_distro[128] = "";
 static bool g_json_output = false;
+static bool g_distros_loaded = false;
+static char g_distro_cache[128] = "";
+static bool g_distro_cached = false;
 
 static void print_usage(const char *progname) {
     fprintf(stderr, "Usage: %s [--force-distro <distroname>] [--json]\n", progname);
@@ -71,11 +74,18 @@ static bool parse_cli_args(int argc, char **argv) {
 
 static void parse_distros_def(const char *path)
 {
+    free(g_knownDistros);
+    g_knownDistros = NULL;
+    g_numKnown = 0;
+
     FILE *fp = fopen(path, "r");
     if (!fp) {
         // If no distros.def yet, that's okay; we can create it later.
+        g_distros_loaded = true;
         return;
     }
+
+    size_t known_capacity = 0;
 
     // We'll store lines in a dynamic array of distro_entry_t
     char line[512];
@@ -113,26 +123,44 @@ static void parse_distros_def(const char *path)
         //
         // In real code you'd want more robust error-checking.
 
-                if (cf_parse_distro_def_line(
-                                p,
-                                shortname,
-                                sizeof(shortname),
-                                longname,
-                                sizeof(longname),
-                                pkgcmd,
-                                sizeof(pkgcmd)
-                        )) {
+        if (cf_parse_distro_def_line(
+                p,
+                shortname,
+                sizeof(shortname),
+                longname,
+                sizeof(longname),
+                pkgcmd,
+                sizeof(pkgcmd)
+        )) {
             // We got a valid parse! Let's store it.
-            // Reallocate global array to hold one more entry
-            g_knownDistros = realloc(g_knownDistros, (g_numKnown + 1) * sizeof(distro_entry_t));
+            // Reallocate global array in chunks to reduce realloc churn
+            if (g_numKnown == known_capacity) {
+                size_t new_capacity = (known_capacity == 0) ? 32 : known_capacity * 2;
+                distro_entry_t *tmp = realloc(g_knownDistros, new_capacity * sizeof(distro_entry_t));
+                if (!tmp) {
+                    fclose(fp);
+                    free(g_knownDistros);
+                    g_knownDistros = NULL;
+                    g_numKnown = 0;
+                    g_distros_loaded = true;
+                    return;
+                }
+                g_knownDistros = tmp;
+                known_capacity = new_capacity;
+            }
+
             strncpy(g_knownDistros[g_numKnown].shortname, shortname, sizeof(g_knownDistros[g_numKnown].shortname));
+            g_knownDistros[g_numKnown].shortname[sizeof(g_knownDistros[g_numKnown].shortname) - 1] = '\0';
             strncpy(g_knownDistros[g_numKnown].longname, longname, sizeof(g_knownDistros[g_numKnown].longname));
+            g_knownDistros[g_numKnown].longname[sizeof(g_knownDistros[g_numKnown].longname) - 1] = '\0';
             strncpy(g_knownDistros[g_numKnown].pkgcmd, pkgcmd, sizeof(g_knownDistros[g_numKnown].pkgcmd));
+            g_knownDistros[g_numKnown].pkgcmd[sizeof(g_knownDistros[g_numKnown].pkgcmd) - 1] = '\0';
             g_numKnown++;
         }
     }
 
     fclose(fp);
+    g_distros_loaded = true;
 }
 
 static bool insert_auto_added_distro(const char* defPath, 
@@ -327,6 +355,16 @@ const char* detect_linux_distro()
         return g_forced_distro;
     }
 
+    if (g_distro_cached && g_distro_cache[0] != '\0') {
+        return g_distro_cache;
+    }
+
+    if (!g_distros_loaded) {
+        char defPath[PATH_MAX];
+        get_definitions_file_path(defPath, sizeof(defPath));
+        parse_distros_def(defPath);
+    }
+
     // 1) Read /etc/os-release
     FILE* os_release = fopen("/etc/os-release", "r");
     if (!os_release) {
@@ -347,7 +385,9 @@ const char* detect_linux_distro()
     for (size_t i = 0; i < g_numKnown; i++) {
         if (strcmp(distroId, g_knownDistros[i].shortname) == 0) {
             // Found it => return the "long name"
-            return g_knownDistros[i].longname;
+            snprintf(g_distro_cache, sizeof(g_distro_cache), "%s", g_knownDistros[i].longname);
+            g_distro_cached = true;
+            return g_distro_cache;
         }
     }
 
@@ -378,18 +418,26 @@ const char* detect_linux_distro()
     }
 
     // CHANGED: Return the capitalized version as "Distro"
-    static char retBuf[128];
-    snprintf(retBuf, sizeof(retBuf), "%s", capitalized);
-    return retBuf;
+    snprintf(g_distro_cache, sizeof(g_distro_cache), "%s", capitalized);
+    g_distro_cached = true;
+    return g_distro_cache;
 }
 
 void display_fetch() {
 	// Fetch system information
 	char hostname[256];
-	const char *detectedDistro = detect_linux_distro();
-	char *username = getlogin();
+	const char *detectedDistro = NULL;
+    const char *username = getenv("USER");
+    char *login_name = NULL;
 
-	if (username == NULL) {
+    if (username == NULL || username[0] == '\0') {
+        login_name = getlogin();
+        if (login_name != NULL && login_name[0] != '\0') {
+            username = login_name;
+        }
+    }
+
+    if (username == NULL || username[0] == '\0') {
 	    // Fallback: try to retrieve the username using getpwuid
 	    struct passwd *pw = getpwuid(geteuid());
 	    if (pw != NULL) {
@@ -423,6 +471,8 @@ void display_fetch() {
         return;
     }
 
+	detectedDistro = detect_linux_distro();
+
     // Clear screen for a clean redraw
     printf("\033[H\033[J");
 
@@ -455,9 +505,6 @@ int main(int argc, char **argv) {
     // Initialize configuration with defaults.
     init_g_config();
     g_log = NULL;
-
-    char defPath[PATH_MAX];
-    get_definitions_file_path(defPath, sizeof(defPath));
 
     if (!g_json_output) {
         // Set up signal handlers.
@@ -498,8 +545,6 @@ int main(int argc, char **argv) {
     } else {
         load_config_file(config_path, &g_userConfig);
     }
-
-    parse_distros_def(defPath);
 
     // Display system information initially.
     display_fetch();

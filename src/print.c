@@ -55,10 +55,22 @@ static int utf8_codepoint_width(const char *s, size_t max_len, size_t *consumed)
 static size_t utf8_display_width(const char *s) {
     if (!s) return 0;
 
+    size_t len = strlen(s);
+    bool ascii_only = true;
+    for (size_t i = 0; i < len; i++) {
+        if (((unsigned char)s[i]) & 0x80u) {
+            ascii_only = false;
+            break;
+        }
+    }
+
+    if (ascii_only) {
+        return len;
+    }
+
     ensure_utf8_locale();
 
     size_t width = 0;
-    size_t len = strlen(s);
     size_t pos = 0;
 
     while (pos < len) {
@@ -75,9 +87,21 @@ static size_t utf8_display_width(const char *s) {
 static size_t utf8_nbytes_for_columns(const char *s, size_t max_columns) {
     if (!s) return 0;
 
+    size_t len = strlen(s);
+    bool ascii_only = true;
+    for (size_t i = 0; i < len; i++) {
+        if (((unsigned char)s[i]) & 0x80u) {
+            ascii_only = false;
+            break;
+        }
+    }
+
+    if (ascii_only) {
+        return len < max_columns ? len : max_columns;
+    }
+
     ensure_utf8_locale();
 
-    size_t len = strlen(s);
     size_t pos = 0;
     size_t used_columns = 0;
 
@@ -161,9 +185,31 @@ static size_t utf8_nbytes_for_column_range(const char *s, size_t start_col, size
         return 0;
     }
 
+    size_t len = strlen(s);
+    bool ascii_only = true;
+    for (size_t i = 0; i < len; i++) {
+        if (((unsigned char)s[i]) & 0x80u) {
+            ascii_only = false;
+            break;
+        }
+    }
+
+    if (ascii_only) {
+        if (start_col >= len) {
+            if (out_start_byte) *out_start_byte = len;
+            return 0;
+        }
+
+        size_t start_byte = start_col;
+        size_t available = len - start_byte;
+        size_t bytes = available < max_columns ? available : max_columns;
+
+        if (out_start_byte) *out_start_byte = start_byte;
+        return bytes;
+    }
+
     ensure_utf8_locale();
 
-    size_t len = strlen(s);
     size_t pos = 0;
     size_t col = 0;
     bool started = false;

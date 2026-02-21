@@ -131,9 +131,29 @@ sudo apt install git
    - `make test-parsers` covers distro definition + `/etc/os-release` ID parsing.
    - `make test-config` covers config parsing (`modules`, units, and boolean flags).
    - `make test-units` covers byte-to-unit conversion helpers.
+   - `make test-perf` runs a startup/runtime performance benchmark (JSON mode, core module profile) and fails if mean runtime exceeds budget.
+
+6. **Track performance over time**:
+   - Default benchmark budget is mean `<= 150ms` across 20 runs (after warmup).
+   - Tune benchmark knobs via env vars:
+     - `CUPIDFETCH_PERF_MAX_MEAN_MS` (e.g. `200`)
+     - `CUPIDFETCH_PERF_RUNS` (e.g. `30`)
+     - `CUPIDFETCH_PERF_WARMUP` (e.g. `5`)
+   - Example:
+     ```bash
+     CUPIDFETCH_PERF_MAX_MEAN_MS=200 CUPIDFETCH_PERF_RUNS=30 make test-perf
+     ```
 
 6. **View the Output**:  
    Prints system info such as distro, kernel, uptime, etc., and displays ASCII art for recognized distros.
+
+### Build Performance Defaults
+
+- `make cupidfetch` now builds with optimization flags by default: `-O2 -DNDEBUG`.
+- Override if needed, for example:
+   ```bash
+   make CFLAGS='-O3 -march=native'
+   ```
 
 ### CLI Flags
 

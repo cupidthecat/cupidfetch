@@ -1,15 +1,17 @@
 #include "../../cupidfetch.h"
 
 void get_shell() {
-    uid_t uid = geteuid();
-
-    struct passwd *pw = getpwuid(uid);
-    if (pw == NULL) {
-        cupid_log(LogType_ERROR, "getpwuid failed to retrieve user password entry");
-        return;
+    const char *shell = getenv("SHELL");
+    if (shell == NULL || shell[0] == '\0') {
+        uid_t uid = geteuid();
+        struct passwd *pw = getpwuid(uid);
+        if (pw == NULL) {
+            cupid_log(LogType_ERROR, "getpwuid failed to retrieve user password entry");
+            return;
+        }
+        shell = pw->pw_shell;
     }
 
-    const char *shell = pw->pw_shell;
     if (shell == NULL) {
         cupid_log(LogType_ERROR, "getpwuid failed to retrieve user shell information");
         return;

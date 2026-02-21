@@ -1,5 +1,42 @@
 #include "module_helpers.h"
 
+#define CF_EXEC_CACHE_CAP 64
+
+struct cf_exec_cache_entry {
+    char name[64];
+    bool exists;
+};
+
+static struct cf_exec_cache_entry g_exec_cache[CF_EXEC_CACHE_CAP];
+static size_t g_exec_cache_count = 0;
+static char g_exec_cache_path[4096] = "";
+static bool g_exec_cache_path_set = false;
+
+static void cf_exec_cache_reset(void) {
+    g_exec_cache_count = 0;
+    g_exec_cache_path[0] = '\0';
+    g_exec_cache_path_set = false;
+}
+
+static bool cf_scan_executable_in_path(const char *path_env, const char *name) {
+    if (!path_env || !path_env[0] || !name || !name[0]) return false;
+
+    char path_copy[4096];
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+
+    char *token = strtok(path_copy, ":");
+    while (token) {
+        char full[4352];
+        if (snprintf(full, sizeof(full), "%s/%s", token, name) > 0) {
+            if (access(full, X_OK) == 0) return true;
+        }
+        token = strtok(NULL, ":");
+    }
+
+    return false;
+}
+
 static bool process_matches(const char *pid, const char *needle) {
     char path[64];
     char comm[128];
@@ -129,20 +166,29 @@ bool cf_executable_in_path(const char *name) {
     const char *path_env = getenv("PATH");
     if (!path_env || !path_env[0]) return false;
 
-    char path_copy[4096];
-    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
-    path_copy[sizeof(path_copy) - 1] = '\0';
-
-    char *token = strtok(path_copy, ":");
-    while (token) {
-        char full[4352];
-        if (snprintf(full, sizeof(full), "%s/%s", token, name) > 0) {
-            if (access(full, X_OK) == 0) return true;
-        }
-        token = strtok(NULL, ":");
+    if (!g_exec_cache_path_set || strcmp(g_exec_cache_path, path_env) != 0) {
+        cf_exec_cache_reset();
+        strncpy(g_exec_cache_path, path_env, sizeof(g_exec_cache_path) - 1);
+        g_exec_cache_path[sizeof(g_exec_cache_path) - 1] = '\0';
+        g_exec_cache_path_set = true;
     }
 
-    return false;
+    for (size_t i = 0; i < g_exec_cache_count; i++) {
+        if (strcmp(g_exec_cache[i].name, name) == 0) {
+            return g_exec_cache[i].exists;
+        }
+    }
+
+    bool exists = cf_scan_executable_in_path(path_env, name);
+
+    if (strlen(name) < sizeof(g_exec_cache[0].name) && g_exec_cache_count < CF_EXEC_CACHE_CAP) {
+        strncpy(g_exec_cache[g_exec_cache_count].name, name, sizeof(g_exec_cache[g_exec_cache_count].name) - 1);
+        g_exec_cache[g_exec_cache_count].name[sizeof(g_exec_cache[g_exec_cache_count].name) - 1] = '\0';
+        g_exec_cache[g_exec_cache_count].exists = exists;
+        g_exec_cache_count++;
+    }
+
+    return exists;
 }
 
 bool cf_run_command_first_line(const char *command, char *out, size_t out_size) {
@@ -193,20 +239,33 @@ static bool read_cpu_times(unsigned long long *idle_all, unsigned long long *tot
 }
 
 bool cf_detect_cpu_usage_percent(double *usage_out) {
-    unsigned long long idle1 = 0, total1 = 0;
-    unsigned long long idle2 = 0, total2 = 0;
+    if (!usage_out) return false;
 
-    if (!read_cpu_times(&idle1, &total1)) return false;
-    usleep(120000);
-    if (!read_cpu_times(&idle2, &total2)) return false;
+    static bool have_prev = false;
+    static unsigned long long prev_idle = 0;
+    static unsigned long long prev_total = 0;
 
-    if (total2 <= total1) return false;
+    unsigned long long idle_now = 0;
+    unsigned long long total_now = 0;
+    if (!read_cpu_times(&idle_now, &total_now)) return false;
+    if (total_now == 0 || idle_now > total_now) return false;
 
-    unsigned long long total_delta = total2 - total1;
-    unsigned long long idle_delta = (idle2 >= idle1) ? (idle2 - idle1) : 0;
-    if (total_delta == 0) return false;
+    double usage = 0.0;
 
-    double usage = (double)(total_delta - idle_delta) * 100.0 / (double)total_delta;
+    if (have_prev && total_now > prev_total) {
+        unsigned long long total_delta = total_now - prev_total;
+        unsigned long long idle_delta = (idle_now >= prev_idle) ? (idle_now - prev_idle) : 0;
+
+        if (total_delta == 0) return false;
+        usage = (double)(total_delta - idle_delta) * 100.0 / (double)total_delta;
+    } else {
+        usage = (double)(total_now - idle_now) * 100.0 / (double)total_now;
+    }
+
+    prev_idle = idle_now;
+    prev_total = total_now;
+    have_prev = true;
+
     if (usage < 0.0) usage = 0.0;
     if (usage > 100.0) usage = 100.0;
 
