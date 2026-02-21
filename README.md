@@ -9,13 +9,14 @@
 
 ![baby cupid](images/smol.png)
 
-**Cupid the cat loves Linux!**
+**Cupid the cat loves Linux and Windows!**
 
-cupidfetch is a system information retrieval tool written in C for Linux systems. It's a beginner-friendly, work-in-progress hobby project aimed at learning and exploring programming concepts.
+cupidfetch is a system information retrieval tool written in C for Linux and Windows systems. It's a beginner-friendly, work-in-progress hobby project aimed at learning and exploring programming concepts.
 
 ## Demo
 
 ![demo](images/demo.png)
+![windows](images/windows.png)
 
 ## Features
 
@@ -39,17 +40,17 @@ cupidfetch is a system information retrieval tool written in C for Linux systems
 - GPU  
 - Username  
 - Memory usage  
-- CPU model + usage  
+- CPU model + topology (and usage where available)  
 - Storage/disk usage per mount  
-- Signal Handling for Window Resize, automatically updates display with terminal resizing (`SIGWINCH`)  
+- Signal handling for window resize on Linux/Unix terminals (`SIGWINCH`)  
 - And more
 
-**✔️ Auto-add unknown distros to `distros.def`:**  
-If cupidfetch detects an unrecognized distro in `/etc/os-release`, it automatically inserts a new line into `distros.def` (under an "auto added" section) so the distro becomes recognized in subsequent runs.  
+**✔️ Auto-add unknown distros to `distros.def` (Linux):**  
+If cupidfetch detects an unrecognized Linux distro in `/etc/os-release`, it automatically inserts a new line into `distros.def` (under an "auto added" section) so the distro becomes recognized in subsequent runs.  
 
 **✔️ Per-distro ASCII logos with truecolor + fallback:**
 
-- Shows distro-specific ASCII logos for common distros (e.g., Ubuntu, Debian, Arch, Fedora, Manjaro, Alpine)
+- Shows distro-specific ASCII logos for common distros/OSes (e.g., Ubuntu, Debian, Arch, Fedora, Manjaro, Alpine, Windows 10/11)
 - Uses truecolor logo tint when terminal supports it (`COLORTERM=truecolor` or `24bit`)
 - Falls back to a generic logo when distro art is unavailable
 
@@ -58,11 +59,12 @@ If cupidfetch detects an unrecognized distro in `/etc/os-release`, it automatica
 - Simple code  
 - Easy to understand and contribute  
 
-**Supported Distros:**  
+**Supported Distros / OSes:**  
 
 - Debian (Ubuntu, elementary, Mint) [Verified ✔️]  
 - Arch (Manjaro, Artix, EndeavourOS) [Verified ✔️]  
 - Fedora [Verified ✔️]  
+- Windows 10 / Windows 11 [Supported]
 - Others are in `data/distros.def` (now automatically updated if not recognized)
 
 ## Dependencies
@@ -102,22 +104,33 @@ sudo apt install git
    git clone https://github.com/frankischilling/cupidfetch
    ```
 2. **Compile**:
-   ```bash
-   make
-   ```
-   Or manually:
-   ```bash
-   gcc -o cupidfetch src/config.c src/main.c src/modules.c src/print.c libs/cupidconf.c
-   ```
+   - Linux/macOS (with `make`):
+     ```bash
+     make
+     ```
+   - Windows (MinGW GCC, no `make` required):
+     ```powershell
+     $src = Get-ChildItem -Recurse -File src -Filter *.c | ForEach-Object { $_.FullName }
+     gcc -o cupidfetch.exe $src libs/cupidconf.c -O2 -DNDEBUG -Ilibs -D_WIN32_WINNT=0x0601 -lws2_32
+     ```
+   - If you have `make` on Windows:
+     ```bash
+     make windows
+     ```
 3. **Run**:
    - **From the current directory**:
+      ```bash
+      ./cupidfetch
+      ```
+   - **JSON mode (script-friendly)**:
      ```bash
-     ./cupidfetch
+     ./cupidfetch --json
      ```
-    - **JSON mode (script-friendly)**:
-       ```bash
-       ./cupidfetch --json
-       ```
+   - **Windows executable**:
+     ```powershell
+     .\cupidfetch.exe
+     .\cupidfetch.exe --json
+     ```
    - **From anywhere** (optional):
      ```bash
      sudo mv cupidfetch /usr/local/bin
@@ -128,7 +141,7 @@ sudo apt install git
 
 5. **Run lightweight tests**:
    - `make test` runs all lightweight parser/detector tests.
-   - `make test-parsers` covers distro definition + `/etc/os-release` ID parsing.
+   - `make test-parsers` covers distro definition + `/etc/os-release` ID parsing (Linux path).
    - `make test-config` covers config parsing (`modules`, units, and boolean flags).
    - `make test-units` covers byte-to-unit conversion helpers.
    - `make test-perf` runs a startup/runtime performance benchmark (JSON mode, core module profile) and fails if mean runtime exceeds budget.
@@ -144,7 +157,7 @@ sudo apt install git
      CUPIDFETCH_PERF_MAX_MEAN_MS=200 CUPIDFETCH_PERF_RUNS=30 make test-perf
      ```
 
-6. **View the Output**:  
+7. **View the Output**:  
    Prints system info such as distro, kernel, uptime, etc., and displays ASCII art for recognized distros.
 
 ### Build Performance Defaults
@@ -173,6 +186,7 @@ You can use the `install-config.sh` script to create a configuration file for cu
   ```
   $HOME/.config/cupidfetch/cupidfetch.conf
   ```
+  On Windows, `%APPDATA%/cupidfetch/cupidfetch.conf` is used when available.
 
 ### Example `cupidfetch.conf`
 ```ini
@@ -193,7 +207,7 @@ network.show-full-public-ip = false
 ```
 Adjust as needed; e.g., switch units to test different scale factors.
 
-## Auto-Add Unknown Distros
+## Auto-Add Unknown Distros (Linux)
 
 Whenever cupidfetch encounters a distro that isn’t listed in `data/distros.def`, it:
 
@@ -228,9 +242,10 @@ cupidfetch 2> /dev/null
 
 ## Requirements
 
-- Linux system  
-- Basic knowledge of C programming  
-- Curiosity for exploring system information  
+- Linux or Windows
+- C compiler (GCC recommended)
+- Basic knowledge of C programming
+- Curiosity for exploring system information
 
 ## How to Contribute
 

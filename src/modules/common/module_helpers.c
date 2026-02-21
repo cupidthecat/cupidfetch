@@ -25,19 +25,37 @@ static bool cf_scan_executable_in_path(const char *path_env, const char *name) {
     strncpy(path_copy, path_env, sizeof(path_copy) - 1);
     path_copy[sizeof(path_copy) - 1] = '\0';
 
-    char *token = strtok(path_copy, ":");
+    const char *sep = ":";
+#ifdef _WIN32
+    sep = ";";
+#endif
+    char *token = strtok(path_copy, sep);
     while (token) {
         char full[4352];
-        if (snprintf(full, sizeof(full), "%s/%s", token, name) > 0) {
+        const char *slash = "/";
+#ifdef _WIN32
+        slash = "\\";
+#endif
+        if (snprintf(full, sizeof(full), "%s%s%s", token, slash, name) > 0) {
             if (access(full, X_OK) == 0) return true;
         }
-        token = strtok(NULL, ":");
+#ifdef _WIN32
+        if (snprintf(full, sizeof(full), "%s%s%s.exe", token, slash, name) > 0) {
+            if (access(full, X_OK) == 0) return true;
+        }
+#endif
+        token = strtok(NULL, sep);
     }
 
     return false;
 }
 
 static bool process_matches(const char *pid, const char *needle) {
+#ifdef _WIN32
+    (void)pid;
+    (void)needle;
+    return false;
+#else
     char path[64];
     char comm[128];
 
@@ -63,6 +81,7 @@ static bool process_matches(const char *pid, const char *needle) {
     cmdline[nread] = '\0';
 
     return cf_contains_icase(cmdline, needle);
+#endif
 }
 
 void cf_trim_newline(char *str) {
@@ -85,6 +104,11 @@ bool cf_contains_icase(const char *haystack, const char *needle) {
 }
 
 const char *cf_detect_process_label(const struct process_match *candidates, size_t num_candidates) {
+#ifdef _WIN32
+    (void)candidates;
+    (void)num_candidates;
+    return NULL;
+#else
     DIR *dir = opendir("/proc");
     if (!dir) return NULL;
 
@@ -105,11 +129,16 @@ const char *cf_detect_process_label(const struct process_match *candidates, size
 
     closedir(dir);
     return NULL;
+#endif
 }
 
 const char *cf_basename_or_self(const char *path) {
     if (!path || !path[0]) return NULL;
     const char *base = strrchr(path, '/');
+#ifdef _WIN32
+    const char *base_win = strrchr(path, '\\');
+    if (!base || (base_win && base_win > base)) base = base_win;
+#endif
     return base ? (base + 1) : path;
 }
 
@@ -239,6 +268,10 @@ static bool read_cpu_times(unsigned long long *idle_all, unsigned long long *tot
 }
 
 bool cf_detect_cpu_usage_percent(double *usage_out) {
+#ifdef _WIN32
+    (void)usage_out;
+    return false;
+#else
     if (!usage_out) return false;
 
     static bool have_prev = false;
@@ -271,6 +304,7 @@ bool cf_detect_cpu_usage_percent(double *usage_out) {
 
     *usage_out = usage;
     return true;
+#endif
 }
 
 bool cf_build_power_supply_path(
@@ -380,6 +414,11 @@ void cf_append_csv_item(char *dest, size_t dest_size, const char *item) {
 }
 
 bool cf_detect_gpu_from_lspci(char *gpu_out, size_t gpu_out_size) {
+#ifdef _WIN32
+    (void)gpu_out;
+    (void)gpu_out_size;
+    return false;
+#else
     FILE *fp = popen("lspci 2>/dev/null", "r");
     if (!fp) return false;
 
@@ -404,9 +443,16 @@ bool cf_detect_gpu_from_lspci(char *gpu_out, size_t gpu_out_size) {
 
     pclose(fp);
     return false;
+#endif
 }
 
 bool cf_read_pci_slot_from_uevent(const char *drm_name, char *slot_out, size_t slot_out_size) {
+#ifdef _WIN32
+    (void)drm_name;
+    (void)slot_out;
+    (void)slot_out_size;
+    return false;
+#else
     char path[512];
     if (!cf_build_path3(path, sizeof(path), "/sys/class/drm/", drm_name, "/device/uevent")) {
         return false;
@@ -430,9 +476,16 @@ bool cf_read_pci_slot_from_uevent(const char *drm_name, char *slot_out, size_t s
 
     fclose(fp);
     return found;
+#endif
 }
 
 bool cf_detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t gpu_out_size) {
+#ifdef _WIN32
+    (void)pci_slot;
+    (void)gpu_out;
+    (void)gpu_out_size;
+    return false;
+#else
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "lspci -s %s 2>/dev/null", pci_slot);
 
@@ -453,9 +506,78 @@ bool cf_detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t gpu
     strncpy(gpu_out, desc, gpu_out_size);
     gpu_out[gpu_out_size - 1] = '\0';
     return gpu_out[0] != '\0';
+#endif
 }
 
 bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
+#ifdef _WIN32
+    if (!iface_out || iface_out_size == 0 || !ip_out || ip_out_size == 0 || !is_up) return false;
+
+    FILE *fp = popen("ipconfig", "r");
+    if (!fp) return false;
+
+    char line[512];
+    char current_iface[128] = "";
+    bool in_adapter = false;
+    bool disconnected = false;
+
+    while (fgets(line, sizeof(line), fp)) {
+        cf_trim_newline(line);
+        char *trimmed = cf_trim_spaces(line);
+        if (!trimmed || !trimmed[0]) continue;
+
+        if (cf_contains_icase(trimmed, "adapter") && trimmed[strlen(trimmed) - 1] == ':') {
+            const char *start = strstr(trimmed, "adapter ");
+            if (start) {
+                start += strlen("adapter ");
+                size_t len = strlen(start);
+                if (len > 0 && start[len - 1] == ':') len--;
+                if (len >= sizeof(current_iface)) len = sizeof(current_iface) - 1;
+                memcpy(current_iface, start, len);
+                current_iface[len] = '\0';
+                in_adapter = true;
+                disconnected = false;
+            } else {
+                in_adapter = false;
+            }
+            continue;
+        }
+
+        if (!in_adapter) continue;
+
+        if (cf_contains_icase(trimmed, "Media State") && cf_contains_icase(trimmed, "disconnected")) {
+            disconnected = true;
+            continue;
+        }
+
+        if (cf_contains_icase(trimmed, "IPv4 Address")) {
+            char *colon = strrchr(trimmed, ':');
+            if (!colon) continue;
+
+            char *ip = cf_trim_spaces(colon + 1);
+            if (!ip || !ip[0]) continue;
+
+            char *preferred = strchr(ip, '(');
+            if (preferred) {
+                *preferred = '\0';
+                ip = cf_trim_spaces(ip);
+            }
+
+            if (strncmp(ip, "169.254.", 8) == 0) continue;
+
+            strncpy(iface_out, current_iface[0] ? current_iface : "Ethernet", iface_out_size - 1);
+            iface_out[iface_out_size - 1] = '\0';
+            strncpy(ip_out, ip, ip_out_size - 1);
+            ip_out[ip_out_size - 1] = '\0';
+            *is_up = !disconnected;
+            pclose(fp);
+            return true;
+        }
+    }
+
+    pclose(fp);
+    return false;
+#else
     struct ifaddrs *ifaddr = NULL;
     struct ifaddrs *ifa;
 
@@ -520,14 +642,22 @@ bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, 
     ip_out[ip_out_size - 1] = '\0';
     *is_up = found_up;
     return true;
+#endif
 }
 
 bool cf_get_public_ip(char *ip_out, size_t ip_out_size) {
+#ifdef _WIN32
+    FILE *fp = popen(
+        "powershell -NoProfile -Command \"try { (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 2) } catch { '' }\" 2>nul",
+        "r"
+    );
+#else
     FILE *fp = popen(
         "sh -c \"if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 2 https://api.ipify.org; "
         "elif command -v wget >/dev/null 2>&1; then wget -qO- --timeout=2 https://api.ipify.org; fi\" 2>/dev/null",
         "r"
     );
+#endif
     if (!fp) return false;
 
     char buffer[128] = "";

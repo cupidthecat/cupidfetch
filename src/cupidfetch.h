@@ -2,23 +2,63 @@
 #define CUPIDFETCH_H
 
 #include "cupidconf.h"  // Use cupidconf instead of inih
-#include <arpa/inet.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/utsname.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <windows.h>
+    #include <ws2tcpip.h>
+    #include <io.h>
+    #include <direct.h>
+    #include <process.h>
+    #ifndef PATH_MAX
+        #define PATH_MAX MAX_PATH
+    #endif
+    #ifndef F_OK
+        #define F_OK 0
+    #endif
+    #ifndef X_OK
+        #define X_OK 1
+    #endif
+    #ifndef access
+        #define access _access
+    #endif
+    #ifndef isatty
+        #define isatty _isatty
+    #endif
+    #ifndef pclose
+        #define pclose _pclose
+    #endif
+    #ifndef popen
+        #define popen _popen
+    #endif
+    #ifndef getpid
+        #define getpid _getpid
+    #endif
+    #ifndef strcasecmp
+        #define strcasecmp _stricmp
+    #endif
+    #ifndef strncasecmp
+        #define strncasecmp _strnicmp
+    #endif
+#else
+    #include <arpa/inet.h>
+    #include <ifaddrs.h>
+    #include <net/if.h>
+    #include <pwd.h>
+    #include <sys/ioctl.h>
+    #include <sys/utsname.h>
+    #include <unistd.h>
+#endif
 
 #define MAX_NUM_MODULES 30
 #define CONFIG_PATH_SIZE 256

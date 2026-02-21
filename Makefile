@@ -8,19 +8,27 @@ TEST_CONFIG_BIN=$(TEST_BIN_DIR)/test_config
 TEST_UNITS_BIN=$(TEST_BIN_DIR)/test_units
 TEST_PERF_BIN=$(TEST_BIN_DIR)/test_perf
 
-all: clean cupidfetch
+BIN_NAME=cupidfetch
+ifeq ($(OS),Windows_NT)
+BIN_NAME=cupidfetch.exe
+endif
 
-cupidfetch: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o cupidfetch $^ $(CUPID_OPT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+all: clean $(BIN_NAME)
+
+$(BIN_NAME): $(SRC_FILES) libs/cupidconf.c
+	$(CC) -o $(BIN_NAME) $^ $(CUPID_OPT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 dev: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o cupidfetch $^ $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+	$(CC) -o $(BIN_NAME) $^ $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 asan: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o cupidfetch $^ -fsanitize=address $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+	$(CC) -o $(BIN_NAME) $^ -fsanitize=address $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 ubsan: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o cupidfetch $^ -fsanitize=undefined $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+	$(CC) -o $(BIN_NAME) $^ -fsanitize=undefined $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+windows:
+	$(MAKE) BIN_NAME=cupidfetch.exe CFLAGS="$(CFLAGS) -D_WIN32_WINNT=0x0601" LIBS="$(LIBS) -lws2_32"
 
 $(TEST_BIN_DIR):
 	mkdir -p $(TEST_BIN_DIR)
@@ -46,7 +54,7 @@ test-config: $(TEST_CONFIG_BIN)
 test-units: $(TEST_UNITS_BIN)
 	./$(TEST_UNITS_BIN)
 
-test-perf: cupidfetch $(TEST_PERF_BIN)
+test-perf: $(BIN_NAME) $(TEST_PERF_BIN)
 	./$(TEST_PERF_BIN)
 
 test: test-parsers test-config test-units
@@ -54,7 +62,6 @@ test: test-parsers test-config test-units
 .PHONY: clean test test-parsers test-config test-units test-perf
 
 clean:
-	rm -f cupidfetch *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN)
-
+	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN)
 
 

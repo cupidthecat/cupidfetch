@@ -2,6 +2,27 @@
 #include "../common/module_helpers.h"
 
 void get_available_memory() {
+#ifdef _WIN32
+    MEMORYSTATUSEX memory_status;
+    memset(&memory_status, 0, sizeof(memory_status));
+    memory_status.dwLength = sizeof(memory_status);
+    if (!GlobalMemoryStatusEx(&memory_status)) {
+        return;
+    }
+
+    unsigned long long mem_total_bytes = memory_status.ullTotalPhys;
+    unsigned long long mem_avail_bytes = memory_status.ullAvailPhys;
+    unsigned long long mem_used_bytes = (mem_total_bytes > mem_avail_bytes) ? (mem_total_bytes - mem_avail_bytes) : 0;
+
+    print_info(
+        "Memory", "%ld %s / %ld %s", 20, 30,
+        (long)cf_convert_bytes_to_unit(mem_used_bytes, g_userConfig.memory_unit_size),
+        g_userConfig.memory_unit,
+        (long)cf_convert_bytes_to_unit(mem_total_bytes, g_userConfig.memory_unit_size),
+        g_userConfig.memory_unit
+    );
+    return;
+#else
     ssize_t mem_avail = -1, mem_total = -1;
     long mem_used = 0;
     FILE* meminfo;
@@ -71,4 +92,5 @@ void get_available_memory() {
         (long)cf_convert_bytes_to_unit((unsigned long long)mem_total * 1024ULL, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit
     );
+#endif
 }

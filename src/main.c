@@ -1,18 +1,13 @@
 // File: main.c
 // -----------------------
 #include <signal.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h> // for mkdir
-#include <unistd.h>   // for pause()
 #include <stdio.h>    // for printf
 #include <stdlib.h>   // for exit
 #include <limits.h>   // For PATH_MAX
-#include <libgen.h>   // For dirname()
 #include <string.h>
 #include <errno.h>    // for errno, strerror
 #include <stdbool.h>  // for bool type
-#include <regex.h>    // or just do manual parsing
-#include <pwd.h> 
 // Local Includes
 #include "cupidfetch.h"
 #include "modules/common/module_helpers.h"
@@ -36,6 +31,52 @@ static bool g_json_output = false;
 static bool g_distros_loaded = false;
 static char g_distro_cache[128] = "";
 static bool g_distro_cached = false;
+
+#ifdef _WIN32
+typedef LONG(WINAPI *rtl_get_version_fn)(PRTL_OSVERSIONINFOW);
+
+static const char *detect_windows_distro_name(void) {
+    OSVERSIONINFOEXW osv;
+    memset(&osv, 0, sizeof(osv));
+    osv.dwOSVersionInfoSize = sizeof(osv);
+
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll) {
+        rtl_get_version_fn rtl_get_version = (rtl_get_version_fn)GetProcAddress(ntdll, "RtlGetVersion");
+        if (rtl_get_version && rtl_get_version((PRTL_OSVERSIONINFOW)&osv) == 0) {
+            if (osv.dwMajorVersion == 10 && osv.dwBuildNumber >= 22000) return "Windows 11";
+            if (osv.dwMajorVersion == 10) return "Windows 10";
+            if (osv.dwMajorVersion == 6 && osv.dwMinorVersion >= 2) return "Windows 8";
+            return "Windows";
+        }
+    }
+
+    return "Windows";
+}
+
+static void ensure_parent_dir_exists(const char *path) {
+    if (!path || !path[0]) return;
+
+    char tmp[PATH_MAX];
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    char *last_sep = strrchr(tmp, '\\');
+    if (!last_sep) last_sep = strrchr(tmp, '/');
+    if (!last_sep) return;
+    *last_sep = '\0';
+
+    _mkdir(tmp);
+}
+#else
+static char *path_dirname(char *path) {
+    if (!path || !path[0]) return path;
+    char *slash = strrchr(path, '/');
+    if (!slash) return path;
+    *slash = '\0';
+    return path;
+}
+#endif
 
 static void print_usage(const char *progname) {
     fprintf(stderr, "Usage: %s [--force-distro <distroname>] [--json]\n", progname);
@@ -214,10 +255,10 @@ static bool insert_auto_added_distro(const char* defPath,
     }
 
     // 3) Find the index of "/* auto added */"
-    ssize_t autoAddedIndex = -1;
+    long autoAddedIndex = -1;
     for (size_t i = 0; i < numLines; i++) {
         if (strstr(lines[i], "/* auto added */")) {
-            autoAddedIndex = (ssize_t)i;
+            autoAddedIndex = (long)i;
             break;
         }
     }
@@ -310,6 +351,25 @@ static bool insert_auto_added_distro(const char* defPath,
 }
 
 static void get_definitions_file_path(char *resolvedBuf, size_t size) {
+#ifdef _WIN32
+    char exePath[PATH_MAX];
+    DWORD len = GetModuleFileNameA(NULL, exePath, (DWORD)(sizeof(exePath) - 1));
+    if (len == 0 || len >= sizeof(exePath)) {
+        snprintf(resolvedBuf, size, "data\\distros.def");
+        return;
+    }
+    exePath[len] = '\0';
+
+    char *last_sep = strrchr(exePath, '\\');
+    if (!last_sep) last_sep = strrchr(exePath, '/');
+    if (last_sep) {
+        *last_sep = '\0';
+    }
+
+    snprintf(resolvedBuf, size, "%s\\data\\distros.def", exePath);
+    ensure_parent_dir_exists(resolvedBuf);
+    return;
+#else
     // 1. Read the path of the running executable.
     char exePath[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
@@ -324,7 +384,7 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
     // 2. Extract the directory part (of the current executable).
     //    e.g. if exePath == "/home/frank/cupidfetch/cupidfetch",
     //    then dir == "/home/frank/cupidfetch"
-    char *dir = dirname(exePath);
+    char *dir = path_dirname(exePath);
 
     // 3. Build a path to distros.def (NO ../ now).
     //    e.g. "/home/frank/cupidfetch/data/distros.def"
@@ -336,7 +396,7 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
         char tmpDir[PATH_MAX];
         strncpy(tmpDir, tmpBuf, sizeof(tmpDir));
         tmpDir[PATH_MAX - 1] = '\0';
-        char *dataDir = dirname(tmpDir);
+        char *dataDir = path_dirname(tmpDir);
         mkdir(dataDir, 0755);
     }
 
@@ -346,6 +406,7 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
     if (!realpath(tmpBuf, resolvedBuf)) {
         snprintf(resolvedBuf, size, "%s", tmpBuf);
     }
+#endif
 }
 
 
@@ -365,6 +426,11 @@ const char* detect_linux_distro()
         parse_distros_def(defPath);
     }
 
+#ifdef _WIN32
+    snprintf(g_distro_cache, sizeof(g_distro_cache), "%s", detect_windows_distro_name());
+    g_distro_cached = true;
+    return g_distro_cache;
+#else
     // 1) Read /etc/os-release
     FILE* os_release = fopen("/etc/os-release", "r");
     if (!os_release) {
@@ -421,6 +487,7 @@ const char* detect_linux_distro()
     snprintf(g_distro_cache, sizeof(g_distro_cache), "%s", capitalized);
     g_distro_cached = true;
     return g_distro_cache;
+#endif
 }
 
 void display_fetch() {
@@ -430,6 +497,13 @@ void display_fetch() {
     const char *username = getenv("USER");
     char *login_name = NULL;
 
+#ifdef _WIN32
+    if (username == NULL || username[0] == '\0') {
+        username = getenv("USERNAME");
+    }
+#endif
+
+#ifndef _WIN32
     if (username == NULL || username[0] == '\0') {
         login_name = getlogin();
         if (login_name != NULL && login_name[0] != '\0') {
@@ -447,11 +521,26 @@ void display_fetch() {
 	        username = "";
 	    }
 	}
+#endif
+
+    if (username == NULL || username[0] == '\0') {
+        username = "unknown";
+    }
 	
-	if (gethostname(hostname, sizeof(hostname)) != 0) {
+#ifdef _WIN32
+    const char *computer_name = getenv("COMPUTERNAME");
+    if (computer_name && computer_name[0]) {
+        strncpy(hostname, computer_name, sizeof(hostname) - 1);
+        hostname[sizeof(hostname) - 1] = '\0';
+    } else {
+        hostname[0] = '\0';
+    }
+#else
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
 		cupid_log(LogType_ERROR, "couldn't get hostname");
 		hostname[0] = '\0';
 	}
+#endif
 
     // Construct the username@hostname string
 	char user_host[512];
@@ -485,6 +574,9 @@ void handle_sigwinch(int sig) {
 }
 
 void setup_signal_handlers() {
+#ifdef _WIN32
+    return;
+#else
 	// Register SIGWINCH handler
 	struct sigaction sa;
 	sa.sa_handler = handle_sigwinch;
@@ -494,6 +586,7 @@ void setup_signal_handlers() {
 		perror("sigaction");
 		exit(EXIT_FAILURE);
 	}
+#endif
 }
 
 int main(int argc, char **argv) {
@@ -518,6 +611,11 @@ int main(int argc, char **argv) {
     if (g_log == NULL) {
         char log_path[CONFIG_PATH_SIZE];
         char *config_dir = getenv("XDG_CONFIG_HOME");
+#ifdef _WIN32
+        if (!config_dir || !config_dir[0]) {
+            config_dir = getenv("APPDATA");
+        }
+#endif
         if (config_dir) {
             snprintf(log_path, sizeof(log_path), "%s/cupidfetch/log.txt", config_dir);
         } else {
@@ -534,6 +632,11 @@ int main(int argc, char **argv) {
     // Determine the configuration file path.
     char config_path[CONFIG_PATH_SIZE];
     char *config_dir = getenv("XDG_CONFIG_HOME");
+#ifdef _WIN32
+    if (!config_dir || !config_dir[0]) {
+        config_dir = getenv("APPDATA");
+    }
+#endif
     if (config_dir) {
         snprintf(config_path, sizeof(config_path), "%s/cupidfetch/cupidfetch.conf", config_dir);
     } else {
@@ -554,6 +657,7 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
 
+#ifndef _WIN32
     // Main loop.
     while (1) {
         pause(); // Wait for a signal.
@@ -564,6 +668,7 @@ int main(int argc, char **argv) {
             resize_flag = 0;
         }
     }
+#endif
 
     epitaph();
     return 0;

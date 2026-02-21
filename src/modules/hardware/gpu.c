@@ -68,6 +68,22 @@ static bool is_microsoft_kernel(void) {
 }
 
 void get_gpu() {
+#ifdef _WIN32
+    FILE *fp = popen("wmic path win32_VideoController get name 2>nul", "r");
+    if (!fp) return;
+
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        char *trimmed = cf_trim_spaces(line);
+        cf_trim_newline(trimmed);
+        if (!trimmed[0]) continue;
+        if (cf_contains_icase(trimmed, "name")) continue;
+        print_info("GPU", "%s", 20, 30, trimmed);
+        break;
+    }
+    pclose(fp);
+    return;
+#else
     DIR *dir = opendir("/sys/class/drm");
     char gpu_summary[256] = "";
 
@@ -159,4 +175,5 @@ void get_gpu() {
     }
 
     print_info("GPU", "%s", 20, 30, gpu_summary);
+#endif
 }

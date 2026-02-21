@@ -1,4 +1,6 @@
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "cupidconf.h"
 
@@ -6,11 +8,39 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <fnmatch.h>
+
+static int wildcard_match_impl(const char *pattern, const char *text) {
+    if (!pattern || !text) return 0;
+
+    while (*pattern) {
+        if (*pattern == '*') {
+            while (*pattern == '*') pattern++;
+            if (!*pattern) return 1;
+            while (*text) {
+                if (wildcard_match_impl(pattern, text)) return 1;
+                text++;
+            }
+            return 0;
+        }
+
+        if (*pattern == '?') {
+            if (!*text) return 0;
+            pattern++;
+            text++;
+            continue;
+        }
+
+        if (*pattern != *text) return 0;
+        pattern++;
+        text++;
+    }
+
+    return *text == '\0';
+}
 
 /* Helper: Check if a key matches a wildcard pattern. */
 static int match_wildcard(const char *pattern, const char *key) {
-    return fnmatch(pattern, key, 0) == 0;
+    return wildcard_match_impl(pattern, key) == 1;
 }
 
 /* Helper: Trim leading and trailing whitespace in place. */

@@ -1,8 +1,43 @@
+#ifndef _WIN32
 #include <sys/statvfs.h>
+#endif
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
 
 void get_available_storage() {
+#ifdef _WIN32
+    char drives[512];
+    DWORD len = GetLogicalDriveStringsA((DWORD)sizeof(drives), drives);
+    if (len == 0 || len >= sizeof(drives)) {
+        cupid_log(LogType_ERROR, "couldn't enumerate logical drives");
+        return;
+    }
+
+    bool first = true;
+    for (char *drive = drives; *drive; drive += strlen(drive) + 1) {
+        ULARGE_INTEGER free_bytes_available;
+        ULARGE_INTEGER total_bytes;
+        ULARGE_INTEGER total_free_bytes;
+        if (!GetDiskFreeSpaceExA(drive, &free_bytes_available, &total_bytes, &total_free_bytes)) {
+            continue;
+        }
+
+        unsigned long total = cf_convert_bytes_to_unit(total_bytes.QuadPart, g_userConfig.storage_unit_size);
+        unsigned long available = cf_convert_bytes_to_unit(total_free_bytes.QuadPart, g_userConfig.storage_unit_size);
+        unsigned long used = (total > available) ? (total - available) : 0;
+        unsigned long usage_percent = total > 0 ? (used * 100UL) / total : 0;
+        if (total == 0) continue;
+
+        print_info(
+            first ? "Storage" : "",
+            "%s: %lu/%lu %s (%lu%%)",
+            20, 30,
+            drive, used, total, g_userConfig.storage_unit, usage_percent
+        );
+        first = false;
+    }
+    return;
+#else
     FILE* mount_file = fopen("/proc/mounts", "r");
     if (mount_file == NULL) {
         cupid_log(LogType_ERROR, "couldn't open /proc/mounts");
@@ -42,4 +77,5 @@ void get_available_storage() {
         first = false;
     }
     fclose(mount_file);
+#endif
 }

@@ -4,7 +4,15 @@
 #include <locale.h>
 #include <wchar.h>
 
+#ifdef _WIN32
+static int wcwidth(wchar_t wc) {
+    if (wc == L'\0') return 0;
+    if (wc < 32 || (wc >= 0x7f && wc < 0xa0)) return 0;
+    return 1;
+}
+#else
 extern int wcwidth(wchar_t wc);
+#endif
 
 #define MAX_CAPTURE_LINES 256
 #define MAX_CAPTURE_LINE_LEN 512
@@ -529,6 +537,13 @@ static const char *resolve_distro_logo_alias(const char *name) {
         {"void", "Void Linux"},
         {"slackware", "Slackware"},
         {"solus", "Solus"},
+        {"windows11", "Windows 11"},
+        {"onwindows11", "Windows 11"},
+        {"windows10", "Windows 10"},
+        {"onwindows10", "Windows 10"},
+        {"windows8", "Windows 10"},
+        {"onwindows8", "Windows 10"},
+        {"windows", "Windows"},
     };
 
     for (size_t i = 0; i < sizeof(alias_map) / sizeof(alias_map[0]); i++) {
@@ -1415,6 +1430,65 @@ static const char *const logo_solus[] = {
     "              `.-----..`",
 };
 
+static const char *const logo_windows11[] = {
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+    "################  ################",
+};
+
+static const char *const logo_windows10[] = {
+    "                                ..,",
+    "                    ....,,:;+ccllll",
+    "      ...,,+:;  cllllllllllllllllll",
+    ",cclllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "llllllllllllll  lllllllllllllllllll",
+    "`'ccllllllllll  lllllllllllllllllll",
+    "       `' \\*::  :ccllllllllllllllll",
+    "                       ````''*::cll",
+    "                                 ``",
+};
+
+static const char *const logo_windows[] = {
+    "        ,.=:!!t3Z3z.,",
+    "       :tt:::tt333EE3",
+    "       Et:::ztt33EEEL @Ee.,      ..,",
+    "      ;tt:::tt333EE7 ;EEEEEEttttt33#",
+    "     :Et:::zt333EEQ. $EEEEEttttt33QL",
+    "     it::::tt333EEF @EEEEEEttttt33F",
+    "    ;3=*^```\"*4EEV :EEEEEEttttt33@.",
+    "    ,.=::::!t=., ` @EEEEEEtttz33QF",
+    "   ;::::::::zt33)   \"4EEEtttji3P*",
+    "  :t::::::::tt33.:Z3z..  `` ,..g.",
+    "  i::::::::zt33F AEEEtttt::::ztF",
+    " ;:::::::::t33V ;EEEttttt::::t3",
+    " E::::::::zt33L @EEEtttt::::z3F",
+    "{3=*^```\"*4E3) ;EEEtttt:::::tZ`",
+    "             ` :EEEEtttt::::z7",
+    "                 \"VEzjt:;;z>*`",
+};
+
 static const char *const logo_generic[] = {
         "                            @@@@@@@@@@@@@@@@                              ",
         "                           @@@@@@@@@@@@@@@@@@@@                            ",
@@ -1490,6 +1564,9 @@ static const struct DistroLogo logos[] = {
     {"Void Linux", logo_void, sizeof(logo_void) / sizeof(logo_void[0]), 70, 186, 116},
     {"Slackware", logo_slackware, sizeof(logo_slackware) / sizeof(logo_slackware[0]), 47, 116, 193},
     {"Solus", logo_solus, sizeof(logo_solus) / sizeof(logo_solus[0]), 82, 148, 226},
+    {"Windows 11", logo_windows11, sizeof(logo_windows11) / sizeof(logo_windows11[0]), 0, 120, 212},
+    {"Windows 10", logo_windows10, sizeof(logo_windows10) / sizeof(logo_windows10[0]), 0, 120, 212},
+    {"Windows", logo_windows, sizeof(logo_windows) / sizeof(logo_windows[0]), 0, 120, 212},
 };
 
 static const struct DistroLogo *find_logo_for_distro(const char *distro) {
@@ -1515,17 +1592,35 @@ static const struct DistroLogo *find_logo_for_distro(const char *distro) {
 }
 
 int get_terminal_width() {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(h, &csbi)) {
+        return (int)(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+    }
+    return 80;
+#else
     struct winsize w;
     // FIXME: no error handling
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     return w.ws_col;
+#endif
 }
 
 static int get_terminal_height() {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(h, &csbi)) {
+        return (int)(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
+    }
+    return 24;
+#else
     struct winsize w;
     // FIXME: no error handling
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     return w.ws_row;
+#endif
 }
 
 void print_info(const char *key, const char *format, int align_key, int align_value, ...) {

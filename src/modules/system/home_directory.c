@@ -5,6 +5,15 @@ const char* get_home_directory() {
 
     if (homeDir != NULL) return homeDir;
 
+#ifdef _WIN32
+    if ((homeDir = getenv("USERPROFILE")) == NULL) {
+        homeDir = getenv("HOME");
+    }
+    if (homeDir == NULL) {
+        fprintf(stderr, "home directory couldn't be found\n");
+        exit(EXIT_FAILURE);
+    }
+#else
     if ((homeDir = getenv("HOME")) == NULL) {
         struct passwd* pw = getpwuid(getuid());
         if (pw == NULL) {
@@ -13,5 +22,6 @@ const char* get_home_directory() {
         }
         homeDir = pw->pw_dir;
     }
+#endif
     return homeDir;
 }

@@ -47,6 +47,9 @@ DISTRO("void"     , "Void Linux"  , "xbps-query -l | wc -l")
 DISTRO("slackware", "Slackware"   , "ls /var/log/packages/ | wc -l")
 
 DISTRO("solus"    , "Solus"       , "eopkg list-installed | wc -l")
+DISTRO("windows11", "Windows 11"  , "")
+DISTRO("windows10", "Windows 10"  , "")
+DISTRO("windows"  , "Windows"     , "")
 
 // DISTRO(?????, "NixOS", "nix-env --list-generations | wc -l")
 

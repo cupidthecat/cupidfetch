@@ -258,6 +258,30 @@ static bool append_labeled_count(char *out, size_t out_size, unsigned long count
 }
 
 void get_package_count() {
+#ifdef _WIN32
+    static const package_manager_probe win_pkg_managers[] = {
+        {"winget", "winget", NULL, "winget list 2>nul"},
+        {"choco", "choco", NULL, "choco list -lo 2>nul"},
+        {"scoop", "scoop", NULL, "scoop list 2>nul"},
+    };
+
+    char output[256] = "";
+    bool appended_any = false;
+
+    for (size_t i = 0; i < sizeof(win_pkg_managers) / sizeof(win_pkg_managers[0]); i++) {
+        if (!cf_executable_in_path(win_pkg_managers[i].binary)) continue;
+        unsigned long count = 0;
+        if (!run_manager_probe(&win_pkg_managers[i], &count) || count == 0) continue;
+        if (append_labeled_count(output, sizeof(output), count, win_pkg_managers[i].label)) {
+            appended_any = true;
+        }
+    }
+
+    if (appended_any) {
+        print_info("Package Count", "%s", 20, 30, output);
+    }
+    return;
+#else
     const char* package_command = NULL;
     const char* distro = detect_linux_distro();
 
@@ -332,4 +356,5 @@ void get_package_count() {
     if (appended_any) {
         print_info("Package Count", "%s", 20, 30, output);
     }
+#endif
 }
