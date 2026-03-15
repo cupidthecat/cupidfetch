@@ -34,6 +34,7 @@ void get_window_manager() {
         {"fvwm3", "FVWM3"},
         {"fvwm", "FVWM"},
         {"blackbox", "Blackbox"},
+        {"cupidwm", "cupidwm"},
         {"dwm", "dwm"},
         {"dwl", "dwl"},
         {"awesome", "Awesome"},
