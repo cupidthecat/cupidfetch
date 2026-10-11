@@ -28,7 +28,8 @@ try {
     Set-Content (Join-Path $root 'cupidfetch/cupidfetch.conf') 'modules = pkg' -Encoding ascii
     $env:XDG_CONFIG_HOME = $root
     $env:PATH = $root
-    $env:PATHEXT = '.CMD'
+    # PowerShell must still recognize the application as an executable.
+    $env:PATHEXT = '.EXE;.CMD'
     Set-Location $root
     & $binary --help | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Isolated application preflight failed (exit $LASTEXITCODE)" }
