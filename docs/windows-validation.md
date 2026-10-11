@@ -36,7 +36,7 @@ To run the native fixtures locally from the repository root in PowerShell with
 MinGW GCC on PATH:
 
 ```powershell
-$gcc = (Get-Command gcc -CommandType Application -ErrorAction Stop).Source
+$gcc = (Get-Command gcc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 New-Item -ItemType Directory -Force tests/bin | Out-Null
 & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }

@@ -17,7 +17,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $gcc = (Get-Command gcc -CommandType Application -ErrorAction Stop).Source
+          $gcc = (Get-Command gcc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
           & $gcc --version
           if ($LASTEXITCODE -ne 0) { throw 'GCC version check failed' }
           $sources = @(Get-ChildItem src -Recurse -Filter '*.c' | ForEach-Object FullName)
