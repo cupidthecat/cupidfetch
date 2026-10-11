@@ -37,7 +37,7 @@ try {
 @echo off
 if not "%*"=="list --disable-interactivity" exit /b 9
 echo Name     Id          Version
-echo ---------------------------
+echo ----------------------------
 echo Example  Example.App 1.0
 exit /b 0
 '@

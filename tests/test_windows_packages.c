@@ -93,6 +93,9 @@ static int scoop(void) {
 }
 static int winget(void) {
     int n = 0;
+    /* Match the real-application command fixture, including separator width. */
+    n |= CHECK(cf_count_winget_list, "Name     Id          Version\r\n----------------------------\r\nExample  Example.App 1.0\r\n", true, 1);
+    n |= CHECK(cf_count_winget_list, "Name     Id          Version\r\n---------------------------\r\nExample  Example.App 1.0\r\n", false, 0);
     /* Columns derive from upstream table renderer; values are synthetic. */
     n |= CHECK(cf_count_winget_list, "Name  Id      Version\r\n---------------------\r\nAlpha App.One 1.0\r\nBeta  App.Two 2.0", true, 2);
     n |= CHECK(cf_count_winget_list, "Name  Id      Version Source\n----------------------------\nAlpha App.One 1.0     winget\n", true, 1);
