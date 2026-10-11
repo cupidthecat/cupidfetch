@@ -1,3 +1,4 @@
+#include "subprocess.h"
 #include "module_helpers.h"
 #include <limits.h>
 #ifndef _WIN32
@@ -295,11 +296,11 @@ bool cf_executable_in_path(const char *name) {
 bool cf_run_command_first_line(const char *command, char *out, size_t out_size) {
     if (!command || !command[0] || !out || out_size == 0) return false;
 
-    FILE *fp = popen(command, "r");
+    FILE *fp = cf_capture_command(command, CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!fp) return false;
 
     bool ok = fgets(out, out_size, fp) != NULL;
-    pclose(fp);
+    fclose(fp);
     if (!ok) return false;
 
     cf_trim_newline(out);
@@ -495,7 +496,7 @@ bool cf_detect_gpu_from_lspci(char *gpu_out, size_t gpu_out_size) {
     (void)gpu_out_size;
     return false;
 #else
-    FILE *fp = popen("lspci 2>/dev/null", "r");
+    FILE *fp = cf_capture_command("lspci 2>/dev/null", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!fp) return false;
 
     char line[512];
@@ -513,11 +514,11 @@ bool cf_detect_gpu_from_lspci(char *gpu_out, size_t gpu_out_size) {
 
         strncpy(gpu_out, desc, gpu_out_size);
         gpu_out[gpu_out_size - 1] = '\0';
-        pclose(fp);
+        fclose(fp);
         return true;
     }
 
-    pclose(fp);
+    fclose(fp);
     return false;
 #endif
 }
@@ -565,15 +566,15 @@ bool cf_detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t gpu
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "lspci -s %s 2>/dev/null", pci_slot);
 
-    FILE *fp = popen(cmd, "r");
+    FILE *fp = cf_capture_command(cmd, CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!fp) return false;
 
     char line[512];
     if (!fgets(line, sizeof(line), fp)) {
-        pclose(fp);
+        fclose(fp);
         return false;
     }
-    pclose(fp);
+    fclose(fp);
 
     cf_trim_newline(line);
     char *desc = strstr(line, ": ");
@@ -589,7 +590,7 @@ bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, 
 #ifdef _WIN32
     if (!iface_out || iface_out_size == 0 || !ip_out || ip_out_size == 0 || !is_up) return false;
 
-    FILE *fp = popen("ipconfig", "r");
+    FILE *fp = cf_capture_command("ipconfig", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!fp) return false;
 
     char line[512];
@@ -646,12 +647,12 @@ bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, 
             strncpy(ip_out, ip, ip_out_size - 1);
             ip_out[ip_out_size - 1] = '\0';
             *is_up = !disconnected;
-            pclose(fp);
+            fclose(fp);
             return true;
         }
     }
 
-    pclose(fp);
+    fclose(fp);
     return false;
 #else
     struct ifaddrs *ifaddr = NULL;
@@ -723,22 +724,18 @@ bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, 
 
 bool cf_get_public_ip(char *ip_out, size_t ip_out_size) {
 #ifdef _WIN32
-    FILE *fp = popen(
-        "powershell -NoProfile -Command \"try { (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 2) } catch { '' }\" 2>nul",
-        "r"
-    );
+    FILE *fp = cf_capture_command(
+        "powershell -NoProfile -Command \"try { (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 2) } catch { '' }\" 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
 #else
-    FILE *fp = popen(
+    FILE *fp = cf_capture_command(
         "sh -c \"if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 2 https://api.ipify.org; "
-        "elif command -v wget >/dev/null 2>&1; then wget -qO- --timeout=2 https://api.ipify.org; fi\" 2>/dev/null",
-        "r"
-    );
+        "elif command -v wget >/dev/null 2>&1; then wget -qO- --timeout=2 https://api.ipify.org; fi\" 2>/dev/null", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
 #endif
     if (!fp) return false;
 
     char buffer[128] = "";
     bool ok = fgets(buffer, sizeof(buffer), fp) != NULL;
-    pclose(fp);
+    fclose(fp);
 
     if (!ok) return false;
 

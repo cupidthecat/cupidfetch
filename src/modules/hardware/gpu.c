@@ -1,3 +1,4 @@
+#include "../common/subprocess.h"
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
 
@@ -40,7 +41,7 @@ static bool read_uevent_value(
 
 void get_gpu() {
 #ifdef _WIN32
-    FILE *fp = popen("wmic path win32_VideoController get name 2>nul", "r");
+    FILE *fp = cf_capture_command("wmic path win32_VideoController get name 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!fp) return;
 
     char line[512];
@@ -52,7 +53,7 @@ void get_gpu() {
         print_info("GPU", "%s", 20, 30, trimmed);
         break;
     }
-    pclose(fp);
+    fclose(fp);
     return;
 #else
     DIR *dir = opendir("/sys/class/drm");
