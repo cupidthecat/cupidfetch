@@ -9,6 +9,7 @@ TEST_PARSERS_BIN=$(TEST_BIN_DIR)/test_parsers
 TEST_CONFIG_BIN=$(TEST_BIN_DIR)/test_config
 TEST_UNITS_BIN=$(TEST_BIN_DIR)/test_units
 TEST_PERF_BIN=$(TEST_BIN_DIR)/test_perf
+TEST_PACKAGES_BIN=$(TEST_BIN_DIR)/test_packages
 
 BIN_NAME=cupidfetch
 ifeq ($(OS),Windows_NT)
@@ -47,6 +48,12 @@ $(TEST_UNITS_BIN): tests/test_units.c src/modules/common/module_helpers.c $(HEAD
 $(TEST_PERF_BIN): tests/test_perf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
 	$(CC) -o $@ tests/test_perf.c $(CUPID_DEV) $(CUPID_OPT) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
+$(TEST_PACKAGES_BIN): tests/test_packages.c src/modules/common/package_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_packages.c src/modules/common/package_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+test-packages: $(TEST_PACKAGES_BIN)
+	./$(TEST_PACKAGES_BIN)
+
 test-parsers: $(TEST_PARSERS_BIN)
 	./$(TEST_PARSERS_BIN)
 
@@ -65,11 +72,11 @@ test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
 test-install:
 	sh tests/test_install.sh
 
-test: $(BIN_NAME) test-parsers test-config test-units test-cli test-install
+test: $(BIN_NAME) test-packages test-parsers test-config test-units test-cli test-install
 
-.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install
+.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages
 
 clean:
-	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN)
+	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN)
 
 
