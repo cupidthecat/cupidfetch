@@ -882,6 +882,39 @@ bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_s
     return true;
 }
 
+bool cf_format_storage_usage(unsigned long long total_bytes, unsigned long long free_bytes,
+                             unsigned long unit_size, const char *unit,
+                             char *out, size_t out_size) {
+    if (!out || out_size == 0) return false;
+    out[0] = '\0';
+    if (total_bytes == 0 || free_bytes > total_bytes || unit_size == 0 || !unit) return false;
+    unsigned long long used = total_bytes - free_bytes;
+    unsigned long long remainder = 0;
+    unsigned int percent = 0;
+    /* Compute floor(100 * used / total) without overflowing the product. */
+    for (unsigned int i = 0; i < 100; i++) {
+        if (remainder >= total_bytes - used) {
+            remainder -= total_bytes - used;
+            percent++;
+        } else {
+            remainder += used;
+        }
+    }
+    int written;
+    if (unit_size == 1 || total_bytes < unit_size) {
+        written = snprintf(out, out_size, "%llu/%llu B (%u%%)", used, total_bytes, percent);
+    } else {
+        written = snprintf(out, out_size, "%.2f/%.2f %s (%u%%)",
+                           (double)used / unit_size, (double)total_bytes / unit_size,
+                           unit, percent);
+    }
+    if (written < 0 || (size_t)written >= out_size) {
+        out[0] = '\0';
+        return false;
+    }
+    return true;
+}
+
 unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
     if (unit_size == 0) return 0;
     return (unsigned long)(bytes / unit_size);
