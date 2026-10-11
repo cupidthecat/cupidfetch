@@ -13,6 +13,7 @@ TEST_SUBPROCESS_BIN=$(TEST_BIN_DIR)/test_subprocess
 TEST_DISTRO_FILE_BIN=$(TEST_BIN_DIR)/test_distro_file
 TEST_PATH_BIN=$(TEST_BIN_DIR)/test_posix_path
 TEST_PACKAGES_BIN=$(TEST_BIN_DIR)/test_packages
+TEST_PROCESS_BIN=$(TEST_BIN_DIR)/test_process_detection
 
 BIN_NAME=cupidfetch
 ifeq ($(OS),Windows_NT)
@@ -53,6 +54,12 @@ $(TEST_PERF_BIN): tests/test_perf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
 
 $(TEST_PACKAGES_BIN): tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
 	$(CC) -o $@ tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+$(TEST_PROCESS_BIN): tests/test_process_detection.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_process_detection.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+test-process: $(TEST_PROCESS_BIN)
+	./$(TEST_PROCESS_BIN)
 
 test-packages: $(TEST_PACKAGES_BIN)
 	./$(TEST_PACKAGES_BIN)
@@ -101,11 +108,11 @@ test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
 test-install:
 	sh tests/test_install.sh
 
-test: $(BIN_NAME) test-windows-packages test-subprocess test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
+test: $(BIN_NAME) test-process test-windows-packages test-subprocess test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
 
-.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file test-subprocess test-windows-packages
+.PHONY: test-process all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file test-subprocess test-windows-packages
 
 clean:
-	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN) $(TEST_SUBPROCESS_BIN) $(TEST_WINDOWS_PACKAGES_BIN)
+	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN) $(TEST_SUBPROCESS_BIN) $(TEST_WINDOWS_PACKAGES_BIN) $(TEST_PROCESS_BIN)
 
 
