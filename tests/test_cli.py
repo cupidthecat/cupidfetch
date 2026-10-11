@@ -92,6 +92,48 @@ class CliTests(unittest.TestCase):
             self.assertNotIn(control, output)
         self.assertIn(r'\x1b', output)
 
+    def test_theme_ini_physical_lines(self):
+        self.configure('theme icons')
+        self.env.pop('GTK_THEME', None)
+        directory = self.root / 'config' / 'gtk-3.0'
+        directory.mkdir()
+        cases = [
+            '[Settings]\n#' + 'x' * 510 + 'gtk-theme-name=Wrong\n;'
+            + 'x' * 510 + 'gtk-icon-theme-name=Wrong\n',
+            '[Settings]\ngtk-theme-name=' + 'x' * 600 + '\n'
+            + 'gtk-icon-theme-name=' + 'x' * 600 + '\n',
+            '[Settings]\ngtk-theme-name=' + 'x' * 256 + '\n'
+            + 'gtk-icon-theme-name=' + 'x' * 256 + '\n',
+            '[Settings]\n[' + 'x' * 600 + ']\n'
+            + 'gtk-theme-name=Wrong\ngtk-icon-theme-name=Wrong\n',
+            '[Settings]\n' + ' ' * 600 + '[Other]\n'
+            + 'gtk-theme-name=Wrong\ngtk-icon-theme-name=Wrong\n',
+            '[Settings]\ngtk-theme-name=Wrong\0hidden\n'
+            + 'gtk-icon-theme-name=Wrong\0hidden\n',
+        ]
+        for prefix in cases:
+            with self.subTest(prefix=prefix[:60]):
+                (directory / 'settings.ini').write_text(
+                    prefix + '[Settings]\ngtk-theme-name="Correct"\n'
+                    + "gtk-icon-theme-name='CorrectIcons'", encoding='utf-8')
+                data, _ = self.run_fetch()
+                self.assertEqual(data['theme'], 'Correct [GTK3]')
+                self.assertEqual(data['icons'], 'CorrectIcons [GTK3]')
+
+    def test_theme_ini_preserves_complete_values(self):
+        self.configure('theme icons')
+        self.env.pop('GTK_THEME', None)
+        directory = self.root / 'config' / 'gtk-3.0'
+        directory.mkdir()
+        value = 'x' * 255
+        (directory / 'settings.ini').write_bytes(
+            ('[Settings]\r\n#' + 'x' * 510 + '\n'
+             + 'gtk-theme-name="' + value + '"\r\n'
+             + 'gtk-icon-theme-name="Breeze Dark"').encode())
+        data, _ = self.run_fetch()
+        self.assertEqual(data['theme'], value + ' [GTK3]')
+        self.assertEqual(data['icons'], 'Breeze Dark [GTK3]')
+
     def test_redirected_text_output_exits(self):
         self.configure("username")
         result = subprocess.run([str(BINARY), "--force-distro", "Ubuntu"],
