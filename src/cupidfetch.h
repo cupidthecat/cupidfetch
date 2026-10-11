@@ -26,9 +26,6 @@
     #ifndef F_OK
         #define F_OK 0
     #endif
-    #ifndef X_OK
-        #define X_OK 1
-    #endif
     #ifndef access
         #define access _access
     #endif

@@ -27,6 +27,7 @@ Use `./cupidfetch --json` for JSON output. To install the sample configuration, 
 - [Configuration and modules](docs/usage.md#configuration)
 - [Tests and performance checks](docs/usage.md#tests-and-debugging)
 - [Distro detection and logos](docs/usage.md#distro-detection-and-logos)
+- [Maintenance and validation](docs/maintenance.md)
 
 The project is still in development. Contributions and questions are welcome in [Discord](https://discord.gg/698GBkg2KR).
 

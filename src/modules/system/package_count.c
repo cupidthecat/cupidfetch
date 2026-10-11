@@ -1,5 +1,6 @@
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
+#include "../common/package_helpers.h"
 
 typedef bool (*count_fn_t)(unsigned long *count_out);
 
@@ -10,109 +11,20 @@ typedef struct {
     const char *fallback_command;
 } package_manager_probe;
 
-static bool parse_count(const char *text, unsigned long *count_out) {
-    if (!text || !text[0] || !count_out) return false;
-
-    char buffer[64];
-    strncpy(buffer, text, sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-
-    char *trimmed = cf_trim_spaces(buffer);
-    if (!trimmed || !trimmed[0]) return false;
-
-    char *endptr = NULL;
-    errno = 0;
-    unsigned long parsed = strtoul(trimmed, &endptr, 10);
-    if (errno != 0 || endptr == trimmed) return false;
-
-    while (*endptr) {
-        if (!isspace((unsigned char)*endptr)) return false;
-        endptr++;
-    }
-
-    *count_out = parsed;
-    return true;
-}
-
-static bool count_lines_from_command(const char *command, unsigned long *count_out) {
-    if (!command || !command[0] || !count_out) return false;
-
-    FILE *fp = popen(command, "r");
-    if (!fp) return false;
-
-    char line[512];
-    unsigned long lines = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        lines++;
-    }
-
-    int status = pclose(fp);
-    if (status == -1) return false;
-
-    *count_out = lines;
-    return true;
-}
-
-static bool count_entries_in_dir(const char *path, unsigned long *count_out) {
-    if (!path || !count_out) return false;
-
-    DIR *dir = opendir(path);
-    if (!dir) return false;
-
-    struct dirent *entry;
-    unsigned long count = 0;
-    while ((entry = readdir(dir)) != NULL) {
-        const char *name = entry->d_name;
-        if (name[0] == '.') continue;
-        count++;
-    }
-
-    closedir(dir);
-    *count_out = count;
-    return true;
-}
-
 static bool count_pacman_local(unsigned long *count_out) {
-    return count_entries_in_dir("/var/lib/pacman/local", count_out);
+    return cf_count_package_directory("/var/lib/pacman/local", CF_PACKAGE_DIRECTORIES, count_out);
 }
 
 static bool count_dpkg_status(unsigned long *count_out) {
-    if (!count_out) return false;
-
-    FILE *fp = fopen("/var/lib/dpkg/status", "r");
-    if (!fp) return false;
-
-    char line[512];
-    unsigned long count = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "Status:", 7) != 0) continue;
-        if (cf_contains_icase(line, "install ok installed")) count++;
-    }
-
-    fclose(fp);
-    *count_out = count;
-    return true;
+    return cf_count_package_file("/var/lib/dpkg/status", CF_PACKAGE_DPKG_STATUS, count_out);
 }
 
 static bool count_apk_db(unsigned long *count_out) {
-    if (!count_out) return false;
-
-    FILE *fp = fopen("/lib/apk/db/installed", "r");
-    if (!fp) return false;
-
-    char line[512];
-    unsigned long count = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "P:", 2) == 0) count++;
-    }
-
-    fclose(fp);
-    *count_out = count;
-    return true;
+    return cf_count_package_file("/lib/apk/db/installed", CF_PACKAGE_APK_DB, count_out);
 }
 
 static bool count_slackware_db(unsigned long *count_out) {
-    return count_entries_in_dir("/var/log/packages", count_out);
+    return cf_count_package_directory("/var/log/packages", CF_PACKAGE_REGULAR_FILES, count_out);
 }
 
 static bool is_shell_heavy_command(const char *command) {
@@ -213,7 +125,10 @@ static bool run_manager_probe(const package_manager_probe *probe, unsigned long 
     }
 
     if (probe->fallback_command && probe->fallback_command[0]) {
-        return count_lines_from_command(probe->fallback_command, count_out);
+        cf_package_format format = CF_PACKAGE_LINES;
+        if (strcmp(probe->label, "dpkg") == 0) format = CF_PACKAGE_DPKG_QUERY;
+        if (strcmp(probe->label, "snap") == 0) format = CF_PACKAGE_SNAP_LIST;
+        return cf_count_package_command(probe->fallback_command, format, count_out);
     }
 
     return false;
@@ -293,7 +208,7 @@ void get_package_count() {
 
     static const package_manager_probe pkg_managers[] = {
         {"pacman", "pacman", count_pacman_local, "pacman -Qq 2>/dev/null"},
-        {"dpkg", "dpkg-query", count_dpkg_status, "dpkg-query -W -f='${Package}\n' 2>/dev/null"},
+        {"dpkg", "dpkg-query", count_dpkg_status, "dpkg-query -W -f='${Status}\\n' 2>/dev/null"},
         {"rpm", "rpm", NULL, "rpm -qa 2>/dev/null"},
         {"xbps", "xbps-query", NULL, "xbps-query -l 2>/dev/null"},
         {"apk", "apk", count_apk_db, "apk info 2>/dev/null"},
@@ -301,14 +216,13 @@ void get_package_count() {
         {"eopkg", "eopkg", NULL, "eopkg list-installed 2>/dev/null"},
         {"nix", "nix-store", NULL, "nix-store --query --requisites /run/current-system/sw 2>/dev/null"},
         {"slackpkg", "slackpkg", count_slackware_db, NULL},
-        {"snap", "snap", NULL, "snap list 2>/dev/null"},
+        {"snap", "snap", NULL, "LC_ALL=C snap list 2>/dev/null"},
         {"flatpak", "flatpak", NULL, "flatpak list --app 2>/dev/null"},
         {"yay", "yay", NULL, "yay -Qm 2>/dev/null"},
         {"paru", "paru", NULL, "paru -Qm 2>/dev/null"},
     };
 
     char output[256] = "";
-    char cmd_output[128] = "";
     char used_labels[16][24] = {{0}};
     size_t used_label_count = 0;
     bool appended_any = false;
@@ -328,9 +242,9 @@ void get_package_count() {
     }
 
     if (!appended_any && package_command != NULL && package_command[0] != '\0' && !is_shell_heavy_command(package_command)) {
-        if (cf_run_command_first_line(package_command, cmd_output, sizeof(cmd_output))) {
-            unsigned long count = 0;
-            if (parse_count(cmd_output, &count) && count > 0) {
+        unsigned long count = 0;
+        if (cf_count_package_command(package_command, CF_PACKAGE_TOTAL, &count)) {
+            if (count > 0) {
                 const char *label = manager_label_from_command(package_command);
                 if (append_labeled_count(output, sizeof(output), count, label)) {
                     remember_label(label, used_labels, &used_label_count, sizeof(used_labels) / sizeof(used_labels[0]));
