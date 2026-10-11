@@ -15,10 +15,10 @@ void get_available_memory() {
     unsigned long long mem_used_bytes = (mem_total_bytes > mem_avail_bytes) ? (mem_total_bytes - mem_avail_bytes) : 0;
 
     print_info(
-        "Memory", "%ld %s / %ld %s", 20, 30,
-        (long)cf_convert_bytes_to_unit(mem_used_bytes, g_userConfig.memory_unit_size),
+        "Memory", "%llu %s / %llu %s", 20, 30,
+        cf_convert_bytes_to_unit(mem_used_bytes, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit,
-        (long)cf_convert_bytes_to_unit(mem_total_bytes, g_userConfig.memory_unit_size),
+        cf_convert_bytes_to_unit(mem_total_bytes, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit
     );
     return;
@@ -86,10 +86,10 @@ void get_available_memory() {
     }
 
     print_info(
-        "Memory", "%ld %s / %ld %s", 20, 30,
-        (long)cf_convert_bytes_to_unit((unsigned long long)mem_used * 1024ULL, g_userConfig.memory_unit_size),
+        "Memory", "%llu %s / %llu %s", 20, 30,
+        cf_convert_bytes_to_unit((unsigned long long)mem_used * 1024ULL, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit,
-        (long)cf_convert_bytes_to_unit((unsigned long long)mem_total * 1024ULL, g_userConfig.memory_unit_size),
+        cf_convert_bytes_to_unit((unsigned long long)mem_total * 1024ULL, g_userConfig.memory_unit_size),
         g_userConfig.memory_unit
     );
 #endif

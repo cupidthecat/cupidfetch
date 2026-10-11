@@ -882,9 +882,9 @@ bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_s
     return true;
 }
 
-unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
+unsigned long long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
     if (unit_size == 0) return 0;
-    return (unsigned long)(bytes / unit_size);
+    return bytes / unit_size;
 }
 
 #ifndef _WIN32

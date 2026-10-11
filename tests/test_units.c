@@ -24,6 +24,11 @@ static int test_cpu_times(void) {
 }
 
 int main(void) {
+    if (cf_convert_bytes_to_unit(8589934592ULL, 1) != 8589934592ULL ||
+        cf_convert_bytes_to_unit(18446744073709551615ULL, 1) != 18446744073709551615ULL) {
+        fprintf(stderr, "unit conversion must retain all 64 bits\n");
+        return 1;
+    }
     if (test_cpu_times()) return 1;
     if (cf_convert_bytes_to_unit(2048ULL, 1024UL) != 2UL) {
         fprintf(stderr, "convert 2048/1024 should be 2\n");
