@@ -10,6 +10,9 @@ struct process_match {
 
 void cf_trim_newline(char *str);
 bool cf_contains_icase(const char *haystack, const char *needle);
+/* Exact case-insensitive comm/argv[0] basenames, restricted to the current
+ * effective user and compatible session evidence. Unreadable metadata falls
+ * back to the POSIX session; an unidentifiable desktop remains unknown. */
 const char *cf_detect_process_label(const struct process_match *candidates, size_t num_candidates);
 const char *cf_basename_or_self(const char *path);
 bool cf_read_first_line(const char *path, char *buffer, size_t size);
