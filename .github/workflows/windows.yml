@@ -21,28 +21,44 @@ jobs:
           & $gcc --version
           if ($LASTEXITCODE -ne 0) { throw 'GCC version check failed' }
           $sources = @(Get-ChildItem src -Recurse -Filter '*.c' | ForEach-Object FullName)
-          & $gcc -o cupidfetch.exe @sources libs/cupidconf.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          & $gcc -o cupidfetch.exe @sources libs/cupidconf.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
           New-Item -ItemType Directory -Force tests/bin | Out-Null
-          & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Windows fixture build failed' }
-          & $gcc -o tests/bin/test_packages.exe tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_network.exe tests/test_network.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
+          if ($LASTEXITCODE -ne 0) { throw 'Network fixture build failed' }
+          & $gcc -o tests/bin/test_packages.exe tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Package fixture build failed' }
-          & $gcc -o tests/bin/test_subprocess.exe tests/test_subprocess.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_subprocess.exe tests/test_subprocess.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Subprocess fixture build failed' }
           & $gcc -o tests/bin/test_windows_packages.exe tests/test_windows_packages.c src/modules/common/windows_packages.c -O2 -Wall -std=c99 -Ilibs
           if ($LASTEXITCODE -ne 0) { throw 'Windows package fixture build failed' }
+          & $gcc -o tests/bin/test_units.exe tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
+          if ($LASTEXITCODE -ne 0) { throw 'Unit fixture build failed' }
+          & $gcc -o tests/bin/test_windows_hardware.exe tests/test_windows_hardware.c src/modules/common/battery_helpers.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows hardware fixture build failed' }
+          & $gcc -o tests/bin/test_battery.exe tests/test_battery.c src/modules/common/battery_helpers.c -O2 -Wall -std=c99 -Wformat -Werror=format-security -Ilibs
+          if ($LASTEXITCODE -ne 0) { throw 'Battery fixture build failed' }
       - name: Run native Windows fixtures
         shell: pwsh
         run: |
+          & ./tests/bin/test_units.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native storage unit tests failed' }
           & ./tests/bin/test_windows_path.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows PATH tests failed' }
+          & ./tests/bin/test_network.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native network tests failed' }
           & ./tests/bin/test_packages.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native package parser tests failed' }
           & ./tests/bin/test_subprocess.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native subprocess tests failed' }
           & ./tests/bin/test_windows_packages.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows package parser tests failed' }
+          & ./tests/bin/test_windows_hardware.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows hardware tests failed' }
+          & ./tests/bin/test_battery.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native battery aggregation tests failed' }
       - name: Validate package commands with isolated fixtures
         shell: pwsh
         run: ./tests/test_windows_package_cli.ps1
