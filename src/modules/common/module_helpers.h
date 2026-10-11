@@ -54,7 +54,7 @@ bool cf_parse_distro_def_line(
     size_t pkgcmd_out_size
 );
 bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_size);
-unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size);
+unsigned long long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size);
 
 bool cf_format_storage_usage(unsigned long long total_bytes, unsigned long long free_bytes,
                              unsigned long unit_size, const char *unit,

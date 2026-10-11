@@ -1019,9 +1019,9 @@ bool cf_format_storage_usage(unsigned long long total_bytes, unsigned long long 
     return true;
 }
 
-unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
+unsigned long long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
     if (unit_size == 0) return 0;
-    return (unsigned long)(bytes / unit_size);
+    return bytes / unit_size;
 }
 
 #ifndef _WIN32

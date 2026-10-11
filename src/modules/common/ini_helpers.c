@@ -98,4 +98,3 @@ bool cf_read_ini_value(const char *path, const char *section, const char *key, c
     fclose(fp);
     return false;
 }
-

@@ -40,11 +40,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows hardware fixture build failed' }
           & $gcc -o tests/bin/test_battery.exe tests/test_battery.c src/modules/common/battery_helpers.c -O2 -Wall -std=c99 -Wformat -Werror=format-security -Ilibs
           if ($LASTEXITCODE -ne 0) { throw 'Battery fixture build failed' }
+          & $gcc -o tests/bin/test_windows_memory.exe tests/test_windows_memory.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
+          if ($LASTEXITCODE -ne 0) { throw 'Memory fixture build failed' }
       - name: Run native Windows fixtures
         shell: pwsh
         run: |
           & ./tests/bin/test_units.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native storage unit tests failed' }
+          & ./tests/bin/test_windows_memory.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows memory tests failed' }
           & ./tests/bin/test_windows_path.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows PATH tests failed' }
           & ./tests/bin/test_network.exe
