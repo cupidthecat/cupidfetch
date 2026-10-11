@@ -108,39 +108,87 @@ static bool cf_scan_executable_in_path(const char *path_env, const char *name) {
     return false;
 }
 
+#ifndef _WIN32
 static bool process_matches(const char *pid, const char *needle) {
-#ifdef _WIN32
-    (void)pid;
-    (void)needle;
-    return false;
-#else
+    if (!needle || !needle[0]) return false;
     char path[64];
     char comm[128];
-
     snprintf(path, sizeof(path), "/proc/%s/comm", pid);
-    FILE *comm_file = fopen(path, "r");
-    if (comm_file) {
-        if (fgets(comm, sizeof(comm), comm_file)) {
-            cf_trim_newline(comm);
-            fclose(comm_file);
-            if (cf_contains_icase(comm, needle)) return true;
-        } else {
-            fclose(comm_file);
-        }
-    }
+    if (cf_read_first_line(path, comm, sizeof(comm)) &&
+        strcasecmp(comm, needle) == 0) return true;
 
     snprintf(path, sizeof(path), "/proc/%s/cmdline", pid);
-    FILE *cmdline_file = fopen(path, "r");
-    if (!cmdline_file) return false;
-
-    char cmdline[512];
-    size_t nread = fread(cmdline, 1, sizeof(cmdline) - 1, cmdline_file);
-    fclose(cmdline_file);
-    cmdline[nread] = '\0';
-
-    return cf_contains_icase(cmdline, needle);
-#endif
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    char argv0[4096];
+    size_t nread = fread(argv0, 1, sizeof(argv0), file);
+    fclose(file);
+    /* Only a complete argv[0] counts. Arguments and path prefixes do not. */
+    if (!memchr(argv0, '\0', nread) || !argv0[0]) return false;
+    return strcasecmp(cf_basename_or_self(argv0), needle) == 0;
 }
+
+static bool process_in_session(const char *pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%s/status", pid);
+    FILE *file = fopen(path, "r");
+    if (!file) return false;
+    char line[256];
+    bool owned = false;
+    while (fgets(line, sizeof(line), file)) {
+        unsigned long real, effective, saved, fs;
+        if (sscanf(line, "Uid: %lu %lu %lu %lu", &real, &effective, &saved, &fs) == 4) {
+            owned = effective == (unsigned long)geteuid();
+            break;
+        }
+    }
+    fclose(file);
+    /* Proc directory ownership can become root for non-dumpable processes. */
+    if (!owned) return false;
+
+    static const char *keys[] = {"XDG_SESSION_ID", "DISPLAY", "WAYLAND_DISPLAY"};
+    bool matched = false, conflict = false;
+    snprintf(path, sizeof(path), "/proc/%s/environ", pid);
+    file = fopen(path, "rb");
+    if (file) {
+        char entry[4096];
+        size_t used = 0, total = 0;
+        bool truncated = false;
+        int ch;
+        /* Read NUL-delimited entries, including variables after long entries.
+         * Bound work for processes with unusually large environments. */
+        while (total++ < 1024 * 1024 && (ch = fgetc(file)) != EOF) {
+            if (ch != '\0') {
+                if (used < sizeof(entry) - 1) entry[used++] = (char)ch;
+                else truncated = true;
+                continue;
+            }
+            entry[used] = '\0';
+            for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+                size_t len = strlen(keys[i]);
+                const char *current = getenv(keys[i]);
+                if (current && current[0] && strncmp(entry, keys[i], len) == 0 &&
+                    entry[len] == '=' && entry[len + 1]) {
+                    if (truncated || strcmp(current, entry + len + 1) != 0) conflict = true;
+                    else matched = true;
+                }
+            }
+            used = 0;
+            truncated = false;
+        }
+        /* Incomplete input cannot establish session membership. */
+        if (!feof(file) || ferror(file) || used || truncated) conflict = true;
+        fclose(file);
+    }
+    if (conflict) return false;
+    if (matched) return true;
+
+    /* Terminal shells often have their own POSIX session. Shared graphical or
+     * login metadata above therefore takes precedence over this fallback. */
+    pid_t current_sid = getsid(0);
+    return current_sid >= 0 && getsid((pid_t)strtol(pid, NULL, 10)) == current_sid;
+}
+#endif
 
 void cf_trim_newline(char *str) {
     str[strcspn(str, "\r\n")] = '\0';
@@ -172,13 +220,13 @@ const char *cf_detect_process_label(const struct process_match *candidates, size
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type != DT_DIR) continue;
+        if (entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) continue;
 
         const char *pid = entry->d_name;
-        if (!isdigit((unsigned char)pid[0])) continue;
+        if (!pid[0] || strspn(pid, "0123456789") != strlen(pid)) continue;
 
         for (size_t i = 0; i < num_candidates; i++) {
-            if (process_matches(pid, candidates[i].proc_name)) {
+            if (process_matches(pid, candidates[i].proc_name) && process_in_session(pid)) {
                 closedir(dir);
                 return candidates[i].label;
             }
@@ -934,6 +982,39 @@ bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_s
     id_out[id_out_size - 1] = '\0';
     for (char *c = id_out; *c; c++) {
         *c = (char)tolower((unsigned char)*c);
+    }
+    return true;
+}
+
+bool cf_format_storage_usage(unsigned long long total_bytes, unsigned long long free_bytes,
+                             unsigned long unit_size, const char *unit,
+                             char *out, size_t out_size) {
+    if (!out || out_size == 0) return false;
+    out[0] = '\0';
+    if (total_bytes == 0 || free_bytes > total_bytes || unit_size == 0 || !unit) return false;
+    unsigned long long used = total_bytes - free_bytes;
+    unsigned long long remainder = 0;
+    unsigned int percent = 0;
+    /* Compute floor(100 * used / total) without overflowing the product. */
+    for (unsigned int i = 0; i < 100; i++) {
+        if (remainder >= total_bytes - used) {
+            remainder -= total_bytes - used;
+            percent++;
+        } else {
+            remainder += used;
+        }
+    }
+    int written;
+    if (unit_size == 1 || total_bytes < unit_size) {
+        written = snprintf(out, out_size, "%llu/%llu B (%u%%)", used, total_bytes, percent);
+    } else {
+        written = snprintf(out, out_size, "%.2f/%.2f %s (%u%%)",
+                           (double)used / unit_size, (double)total_bytes / unit_size,
+                           unit, percent);
+    }
+    if (written < 0 || (size_t)written >= out_size) {
+        out[0] = '\0';
+        return false;
     }
     return true;
 }

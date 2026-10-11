@@ -1,3 +1,4 @@
+#include <limits.h>
 #ifndef _WIN32
 #include <sys/statvfs.h>
 #endif
@@ -22,18 +23,11 @@ void get_available_storage() {
             continue;
         }
 
-        unsigned long total = cf_convert_bytes_to_unit(total_bytes.QuadPart, g_userConfig.storage_unit_size);
-        unsigned long available = cf_convert_bytes_to_unit(total_free_bytes.QuadPart, g_userConfig.storage_unit_size);
-        unsigned long used = (total > available) ? (total - available) : 0;
-        unsigned long usage_percent = total > 0 ? (used * 100UL) / total : 0;
-        if (total == 0) continue;
-
-        print_info(
-            first ? "Storage" : "",
-            "%s: %lu/%lu %s (%lu%%)",
-            20, 30,
-            drive, used, total, g_userConfig.storage_unit, usage_percent
-        );
+        char usage[256];
+        if (!cf_format_storage_usage(total_bytes.QuadPart, total_free_bytes.QuadPart,
+                                     g_userConfig.storage_unit_size, g_userConfig.storage_unit,
+                                     usage, sizeof(usage))) continue;
+        print_info(first ? "Storage" : "", "%s: %s", 20, 30, drive, usage);
         first = false;
     }
     return;
@@ -58,22 +52,16 @@ void get_available_storage() {
             continue;
         }
 
-        unsigned long long total_bytes = (unsigned long long)stat.f_blocks * (unsigned long long)stat.f_frsize;
-        unsigned long long available_bytes = (unsigned long long)stat.f_bavail * (unsigned long long)stat.f_frsize;
-
-        unsigned long total = cf_convert_bytes_to_unit(total_bytes, g_userConfig.storage_unit_size);
-        unsigned long available = cf_convert_bytes_to_unit(available_bytes, g_userConfig.storage_unit_size);
-        unsigned long used = (total > available) ? (total - available) : 0;
-        unsigned long usage_percent = total > 0 ? (used * 100UL) / total : 0;
-
-        if (total == 0) continue;
-
-        print_info(
-            first ? "Storage" : "",
-            "%s: %lu/%lu %s (%lu%%)",
-            20, 30,
-            mnt_point, used, total, g_userConfig.storage_unit, usage_percent
-        );
+        if (stat.f_frsize == 0 ||
+            (unsigned long long)stat.f_blocks > ULLONG_MAX / stat.f_frsize ||
+            (unsigned long long)stat.f_bavail > ULLONG_MAX / stat.f_frsize) continue;
+        unsigned long long total_bytes = (unsigned long long)stat.f_blocks * stat.f_frsize;
+        unsigned long long available_bytes = (unsigned long long)stat.f_bavail * stat.f_frsize;
+        char usage[256];
+        if (!cf_format_storage_usage(total_bytes, available_bytes,
+                                     g_userConfig.storage_unit_size, g_userConfig.storage_unit,
+                                     usage, sizeof(usage))) continue;
+        print_info(first ? "Storage" : "", "%s: %s", 20, 30, mnt_point, usage);
         first = false;
     }
     fclose(mount_file);
