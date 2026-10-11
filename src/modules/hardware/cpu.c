@@ -1,6 +1,44 @@
+#if defined(_WIN32) && !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x0601
+#endif
+#include <stddef.h>
+#include <limits.h>
 #include "../common/subprocess.h"
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
+
+#ifdef _WIN32
+static unsigned int windows_core_count(void) {
+    DWORD bytes = 0;
+    if (GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &bytes) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER || bytes == 0) return 0;
+    unsigned char *buffer = malloc(bytes);
+    if (!buffer) return 0;
+    DWORD capacity = bytes;
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
+            (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)buffer, &bytes) || bytes > capacity) {
+        free(buffer);
+        return 0;
+    }
+    DWORD offset = 0;
+    unsigned int cores = 0;
+    while (offset < bytes) {
+        size_t header_size = offsetof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor);
+        if (bytes - offset < header_size) { cores = 0; break; }
+        SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX record;
+        memcpy(&record, buffer + offset, header_size);
+        if (record.Size <= header_size || record.Size > bytes - offset ||
+            record.Relationship != RelationProcessorCore || cores == UINT_MAX) {
+            cores = 0;
+            break;
+        }
+        cores++;
+        offset += record.Size;
+    }
+    free(buffer);
+    return cores;
+}
+#endif
 
 void get_cpu() {
 #ifdef _WIN32
@@ -8,7 +46,7 @@ void get_cpu() {
     unsigned int total_cores = 0;
     unsigned int total_threads = 0;
 
-    FILE *fp = cf_capture_command("wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
+    FILE *fp = cf_capture_command("wmic cpu get Name /format:list 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (fp) {
         char line[512];
         while (fgets(line, sizeof(line), fp)) {
@@ -24,21 +62,6 @@ void get_cpu() {
                 continue;
             }
 
-            if (strncmp(trimmed, "NumberOfCores=", 14) == 0) {
-                unsigned int c = 0;
-                if (sscanf(trimmed + 14, "%u", &c) == 1 && c > 0) {
-                    total_cores += c;
-                }
-                continue;
-            }
-
-            if (strncmp(trimmed, "NumberOfLogicalProcessors=", 26) == 0) {
-                unsigned int t = 0;
-                if (sscanf(trimmed + 26, "%u", &t) == 1 && t > 0) {
-                    total_threads += t;
-                }
-                continue;
-            }
         }
         fclose(fp);
     }
@@ -79,14 +102,17 @@ void get_cpu() {
         }
     }
 
-    if (total_threads == 0 || total_cores == 0) {
-        SYSTEM_INFO si;
-        GetSystemInfo(&si);
-        if (total_threads == 0) total_threads = (unsigned int)si.dwNumberOfProcessors;
-        if (total_cores == 0) total_cores = total_threads;
+    total_cores = windows_core_count();
+    total_threads = (unsigned int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (total_cores && total_threads && total_cores <= total_threads) {
+        print_info("CPU", "%s (%uC/%uT)", 20, 30, cpu_name, total_cores, total_threads);
+    } else if (total_threads) {
+        print_info("CPU", "%s (%uT)", 20, 30, cpu_name, total_threads);
+    } else if (total_cores) {
+        print_info("CPU", "%s (%uC)", 20, 30, cpu_name, total_cores);
+    } else {
+        print_info("CPU", "%s", 20, 30, cpu_name);
     }
-
-    print_info("CPU", "%s (%uC/%uT)", 20, 30, cpu_name, total_cores, total_threads);
     return;
 #else
     FILE* cpuinfo = fopen("/proc/cpuinfo", "r");
