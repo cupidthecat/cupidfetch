@@ -21,18 +21,18 @@ jobs:
           & $gcc --version
           if ($LASTEXITCODE -ne 0) { throw 'GCC version check failed' }
           $sources = @(Get-ChildItem src -Recurse -Filter '*.c' | ForEach-Object FullName)
-          & $gcc -o cupidfetch.exe @sources libs/cupidconf.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          & $gcc -o cupidfetch.exe @sources libs/cupidconf.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
           New-Item -ItemType Directory -Force tests/bin | Out-Null
-          & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Windows fixture build failed' }
-          & $gcc -o tests/bin/test_packages.exe tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_packages.exe tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Package fixture build failed' }
-          & $gcc -o tests/bin/test_subprocess.exe tests/test_subprocess.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_subprocess.exe tests/test_subprocess.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Subprocess fixture build failed' }
           & $gcc -o tests/bin/test_windows_packages.exe tests/test_windows_packages.c src/modules/common/windows_packages.c -O2 -Wall -std=c99 -Ilibs
           if ($LASTEXITCODE -ne 0) { throw 'Windows package fixture build failed' }
-          & $gcc -o tests/bin/test_units.exe tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          & $gcc -o tests/bin/test_units.exe tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32 -liphlpapi
           if ($LASTEXITCODE -ne 0) { throw 'Unit fixture build failed' }
       - name: Run native Windows fixtures
         shell: pwsh
