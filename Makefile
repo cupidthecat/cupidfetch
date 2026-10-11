@@ -9,6 +9,7 @@ TEST_PARSERS_BIN=$(TEST_BIN_DIR)/test_parsers
 TEST_CONFIG_BIN=$(TEST_BIN_DIR)/test_config
 TEST_UNITS_BIN=$(TEST_BIN_DIR)/test_units
 TEST_PERF_BIN=$(TEST_BIN_DIR)/test_perf
+TEST_DISTRO_FILE_BIN=$(TEST_BIN_DIR)/test_distro_file
 TEST_PATH_BIN=$(TEST_BIN_DIR)/test_posix_path
 TEST_PACKAGES_BIN=$(TEST_BIN_DIR)/test_packages
 
@@ -61,6 +62,12 @@ $(TEST_PATH_BIN): tests/test_posix_path.c src/modules/common/module_helpers.c $(
 test-path: $(TEST_PATH_BIN)
 	./$(TEST_PATH_BIN)
 
+$(TEST_DISTRO_FILE_BIN): tests/test_distro_file.c src/modules/common/distro_file.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_distro_file.c src/modules/common/distro_file.c -DCF_DISTRO_FILE_TESTING $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+test-distro-file: $(TEST_DISTRO_FILE_BIN)
+	./$(TEST_DISTRO_FILE_BIN)
+
 test-parsers: $(TEST_PARSERS_BIN)
 	./$(TEST_PARSERS_BIN)
 
@@ -79,11 +86,11 @@ test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
 test-install:
 	sh tests/test_install.sh
 
-test: $(BIN_NAME) test-path test-packages test-parsers test-config test-units test-cli test-install
+test: $(BIN_NAME) test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
 
-.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path
+.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file
 
 clean:
-	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN)
+	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN)
 
 

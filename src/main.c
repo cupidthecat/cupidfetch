@@ -11,6 +11,7 @@
 // Local Includes
 #include "cupidfetch.h"
 #include "modules/common/module_helpers.h"
+#include "modules/common/distro_file.h"
 
 // Global Variables
 FILE *g_log = NULL;
@@ -208,156 +209,20 @@ static bool insert_auto_added_distro(const char* defPath,
                                      const char* distroId, 
                                      const char* capitalized)
 {
-    // We'll need a "was anything inserted?" flag
-    bool insertedSomething = false;
-
-    // 1) Try to open existing file. If it doesn't exist, we’ll create it.
-    FILE* inFile = fopen(defPath, "r");
-    bool fileExisted = (inFile != NULL);
-
-    // We'll store lines here.
-    // If your file is extremely large, consider a streaming approach,
-    // but for typical usage, reading everything into memory is fine.
-    char** lines = NULL;
-    size_t numLines = 0, capacity = 0;
-
-    if (fileExisted) {
-        // 2) Read the entire file line-by-line into memory.
-        char lineBuf[1024];
-        while (fgets(lineBuf, sizeof(lineBuf), inFile)) {
-            // Strip trailing newlines to make searching simpler
-            lineBuf[strcspn(lineBuf, "\r\n")] = '\0';
-
-            // Grow array if needed
-            if (numLines + 1 >= capacity) {
-                capacity = (capacity == 0) ? 16 : capacity * 2;
-                lines = realloc(lines, capacity * sizeof(*lines));
-            }
-
-            // Copy the line into lines[numLines]
-            lines[numLines] = strdup(lineBuf);
-            numLines++;
-        }
-        fclose(inFile);
-    } 
-    else {
-        // The file didn't exist, so we start fresh.
-        capacity = 16;
-        lines = malloc(capacity * sizeof(*lines));
-        numLines = 0;
-
-        // Optionally, if you want to seed it with your original block:
-        lines[numLines++] = strdup("/* dpkg */");
-        lines[numLines++] = strdup("DISTRO(\"ubuntu\", \"Ubuntu\", \"\")");
-        lines[numLines++] = strdup("// ... etc ...");
-        lines[numLines++] = strdup("/* please don't remove this */");
-        lines[numLines++] = strdup("/* auto added */");
-    }
-
-    // 3) Find the index of "/* auto added */"
-    long autoAddedIndex = -1;
-    for (size_t i = 0; i < numLines; i++) {
-        if (strstr(lines[i], "/* auto added */")) {
-            autoAddedIndex = (long)i;
-            break;
-        }
-    }
-
-    // If not found, we append the marker at the end
-    if (autoAddedIndex == -1) {
-        // Grow if needed
-        if (numLines + 1 >= capacity) {
-            capacity *= 2;
-            lines = realloc(lines, capacity * sizeof(*lines));
-        }
-        lines[numLines++] = strdup("/* auto added */");
-        autoAddedIndex = numLines - 1;
-    }
-
-    // 4) Prepare the new line
-    char newLine[256];
-    snprintf(newLine, sizeof(newLine),
-             "DISTRO(\"%s\", \"%s\", \"\")",
-             distroId, capitalized);
-
-    // 5) Check if newLine already exists in the "auto added" section.
-    //
-    //    We'll define the “auto added” section as everything from
-    //    `autoAddedIndex+1` to the end of the file (or until a next special
-    //    comment if you wanted to end the section).
-    //
-    //    For simplicity, let's just scan from `autoAddedIndex+1` to the end:
-    bool alreadyExists = false;
-    for (size_t i = (size_t)autoAddedIndex + 1; i < numLines; i++) {
-        // If we hit a line that starts with "/* " (a new comment block),
-        // we could break if we wanted to end the “auto added” block there.
-        // But if you want to keep auto added going to the file's end,
-        // just skip that logic.
-        //
-        // Now check for an exact match:
-        if (strcmp(lines[i], newLine) == 0) {
-            alreadyExists = true;
-            break;
-        }
-    }
-
-    if (!alreadyExists) {
-        // We actually want to insert the new distro line
-
-        // Grow if needed
-        if (numLines + 1 >= capacity) {
-            capacity *= 2;
-            lines = realloc(lines, capacity * sizeof(*lines));
-        }
-        // Shift everything after autoAddedIndex by one slot
-        for (size_t i = numLines; i > (size_t)autoAddedIndex + 1; i--) {
-            lines[i] = lines[i - 1];
-        }
-        // Put new line right after autoAddedIndex
-        lines[autoAddedIndex + 1] = strdup(newLine);
-        numLines++;
-
-        // We'll rewrite the file at the end
-        insertedSomething = true;
-    }
-
-    // 6) Rewrite the entire file only if we inserted something
-    if (insertedSomething) {
-        FILE *outFile = fopen(defPath, "w");
-        if (!outFile) {
-            fprintf(stderr, "Failed to rewrite %s: %s\n", defPath, strerror(errno));
-            // Clean up
-            for (size_t i = 0; i < numLines; i++) {
-                free(lines[i]);
-            }
-            free(lines);
-            return false;
-        }
-        for (size_t i = 0; i < numLines; i++) {
-            fprintf(outFile, "%s\n", lines[i]);
-            free(lines[i]);
-        }
-        fclose(outFile);
-    }
-    else {
-        // Even if we didn't insert, we should free the lines
-        for (size_t i = 0; i < numLines; i++) {
-            free(lines[i]);
-        }
-        free(lines);
-    }
-
-    return insertedSomething;
+    return cf_insert_auto_added_distro(defPath, distroId, capitalized);
 }
 
 static void get_definitions_file_path(char *resolvedBuf, size_t size) {
+    if (!resolvedBuf || size == 0) return;
+    resolvedBuf[0] = '\0';
 #ifdef _WIN32
     char exePath[PATH_MAX];
     DWORD len = GetModuleFileNameA(NULL, exePath, (DWORD)(sizeof(exePath) - 1));
-    if (len == 0 || len >= sizeof(exePath)) {
-        snprintf(resolvedBuf, size, "data\\distros.def");
+    if (len == 0) {
+        cf_build_path3(resolvedBuf, size, "", "data\\distros.def", "");
         return;
     }
+    if (len >= sizeof(exePath) - 1) return;
     exePath[len] = '\0';
 
     char *last_sep = strrchr(exePath, '\\');
@@ -366,7 +231,7 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
         *last_sep = '\0';
     }
 
-    snprintf(resolvedBuf, size, "%s\\data\\distros.def", exePath);
+    if (!cf_build_path3(resolvedBuf, size, exePath, "\\data\\distros.def", "")) return;
     ensure_parent_dir_exists(resolvedBuf);
     return;
 #else
@@ -376,9 +241,10 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
     if (len == -1) {
         fprintf(stderr, "Failed to read /proc/self/exe\n");
         // Fallback
-        snprintf(resolvedBuf, size, "data/distros.def");
+        cf_build_path3(resolvedBuf, size, "", "data/distros.def", "");
         return;
     }
+    if ((size_t)len >= sizeof(exePath) - 1) return;
     exePath[len] = '\0';
 
     // 2. Extract the directory part (of the current executable).
@@ -388,24 +254,22 @@ static void get_definitions_file_path(char *resolvedBuf, size_t size) {
 
     // 3. Build a path to distros.def (NO ../ now).
     //    e.g. "/home/frank/cupidfetch/data/distros.def"
-    char tmpBuf[PATH_MAX];
-    snprintf(tmpBuf, sizeof(tmpBuf), "%s/data/distros.def", dir);
+    if (!cf_build_path3(resolvedBuf, size, dir, "/data/distros.def", "")) return;
 
     // 4. Make sure the data directory exists.
     {
         char tmpDir[PATH_MAX];
-        strncpy(tmpDir, tmpBuf, sizeof(tmpDir));
-        tmpDir[PATH_MAX - 1] = '\0';
+        size_t path_len = strlen(resolvedBuf);
+        if (path_len >= sizeof(tmpDir)) {
+            resolvedBuf[0] = '\0';
+            return;
+        }
+        memcpy(tmpDir, resolvedBuf, path_len + 1);
         char *dataDir = path_dirname(tmpDir);
         mkdir(dataDir, 0755);
     }
 
-    // 5. realpath() that full path to distros.def.
-    //    If the file doesn't exist yet, realpath() can fail;
-    //    so we fall back to tmpBuf in that case.
-    if (!realpath(tmpBuf, resolvedBuf)) {
-        snprintf(resolvedBuf, size, "%s", tmpBuf);
-    }
+    // Keep the final pathname unresolved so the writer can refuse symlinks.
 #endif
 }
 
