@@ -32,9 +32,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Subprocess fixture build failed' }
           & $gcc -o tests/bin/test_windows_packages.exe tests/test_windows_packages.c src/modules/common/windows_packages.c -O2 -Wall -std=c99 -Ilibs
           if ($LASTEXITCODE -ne 0) { throw 'Windows package fixture build failed' }
+          & $gcc -o tests/bin/test_units.exe tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Ilibs -lws2_32
+          if ($LASTEXITCODE -ne 0) { throw 'Unit fixture build failed' }
       - name: Run native Windows fixtures
         shell: pwsh
         run: |
+          & ./tests/bin/test_units.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native storage unit tests failed' }
           & ./tests/bin/test_windows_path.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows PATH tests failed' }
           & ./tests/bin/test_packages.exe
