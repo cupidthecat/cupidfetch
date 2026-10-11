@@ -11,31 +11,27 @@
 
 static int wildcard_match_impl(const char *pattern, const char *text) {
     if (!pattern || !text) return 0;
-
-    while (*pattern) {
+    const char *star_tail = NULL, *retry = NULL;
+    while (*text) {
         if (*pattern == '*') {
             while (*pattern == '*') pattern++;
             if (!*pattern) return 1;
-            while (*text) {
-                if (wildcard_match_impl(pattern, text)) return 1;
-                text++;
-            }
-            return 0;
-        }
-
-        if (*pattern == '?') {
-            if (!*text) return 0;
+            star_tail = pattern;
+            retry = text;
+        } else if (*pattern == '?' || *pattern == *text) {
             pattern++;
             text++;
-            continue;
+        } else if (star_tail) {
+            /* Extend the most recent star by one byte. No recursive search
+             * tree or stack is needed; retry only advances through text. */
+            pattern = star_tail;
+            text = ++retry;
+        } else {
+            return 0;
         }
-
-        if (*pattern != *text) return 0;
-        pattern++;
-        text++;
     }
-
-    return *text == '\0';
+    while (*pattern == '*') pattern++;
+    return *pattern == '\0';
 }
 
 /* Helper: Check if a key matches a wildcard pattern. */

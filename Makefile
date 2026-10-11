@@ -101,11 +101,20 @@ test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
 test-install:
 	sh tests/test_install.sh
 
-test: $(BIN_NAME) test-windows-packages test-subprocess test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
+test: test-wildcards $(BIN_NAME) test-windows-packages test-subprocess test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
 
 .PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file test-subprocess test-windows-packages
 
 clean:
-	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN) $(TEST_SUBPROCESS_BIN) $(TEST_WINDOWS_PACKAGES_BIN)
+	rm -f $(TEST_WILDCARDS_BIN) cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN) $(TEST_SUBPROCESS_BIN) $(TEST_WINDOWS_PACKAGES_BIN)
 
 
+
+TEST_WILDCARDS_BIN=$(TEST_BIN_DIR)/test_wildcards
+$(TEST_WILDCARDS_BIN): tests/test_wildcards.c libs/cupidconf.c libs/cupidconf.h | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_wildcards.c libs/cupidconf.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+test-wildcards: $(TEST_WILDCARDS_BIN)
+	./$(TEST_WILDCARDS_BIN)
+
+.PHONY: test-wildcards
