@@ -9,7 +9,11 @@ modules enabled, then parses and checks the output. It tests USER and USERNAME
 fallback values containing literal percent-format sequences. It never probes
 installed package managers or makes network requests.
 
-The fixture binary creates its own temporary directory, supplies its own PATH
+The workflow also runs the portable package-record parser fixtures inherited
+from the package-counting repair. These do not validate real Windows package-manager
+table formats.
+
+The PATH fixture binary creates its own temporary directory, supplies its own PATH
 and PATHEXT, and removes its files afterward. It does not install or invoke
 package managers. Empty files represent commands because the helper checks
 command availability rather than launching commands or validating their format.
