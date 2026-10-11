@@ -10,7 +10,7 @@ Snap output is requested under `LC_ALL=C`. Its six-column header is validated an
 
 `make test-packages` runs owned temporary fixtures for logical lines, long records, installed states, Snap output, directory types, missing files and failed child commands. On glibc it also injects a read failure into a fixture stream. No package manager is installed or executed by this suite, and it does not read the host package database. The target is included in `make test`.
 
-The human-readable winget, Chocolatey and Scoop output formats are still a separate gap. The shared command exit/read checks apply on Windows, but native table parsing has not been verified or repaired here. Issue #25 remains open for that work.
+The Windows detector uses dedicated Chocolatey, Scoop and WinGet parsers. See [Windows package counts](windows-package-counting.md) for supported formats, command selection and deliberate omissions.
 
 Sources:
 
