@@ -25,6 +25,53 @@ static char g_info_keys[MAX_CAPTURE_LINES][64];
 static char g_info_values[MAX_CAPTURE_LINES][384];
 static size_t g_info_kv_count = 0;
 
+/* Validate Unicode scalar encodings independently of the process locale. */
+static size_t valid_utf8_length(const unsigned char *s) {
+    unsigned char first = s[0];
+    if (first < 0x80) return first ? 1 : 0;
+    size_t length;
+    if (first >= 0xc2 && first <= 0xdf) length = 2;
+    else if (first >= 0xe0 && first <= 0xef) length = 3;
+    else if (first >= 0xf0 && first <= 0xf4) length = 4;
+    else return 0;
+    for (size_t i = 1; i < length; i++) {
+        if (s[i] < 0x80 || s[i] > 0xbf) return 0;
+    }
+    if ((first == 0xe0 && s[1] < 0xa0) ||
+        (first == 0xed && s[1] >= 0xa0) ||
+        (first == 0xf0 && s[1] < 0x90) ||
+        (first == 0xf4 && s[1] >= 0x90)) return 0;
+    return length;
+}
+
+/* Escape detected text before layout; renderer-owned ANSI stays separate. */
+static void terminal_text(const char *input, char *output, size_t capacity) {
+    if (!capacity) return;
+    size_t used = 0;
+    const unsigned char *p = (const unsigned char *)(input ? input : "");
+    while (*p) {
+        char escaped[8];
+        const char *part = (const char *)p;
+        size_t consumed = valid_utf8_length(p);
+        size_t length = consumed;
+        if (*p < 0x20 || *p == 0x7f || !consumed) {
+            snprintf(escaped, sizeof(escaped), "\\x%02x", (unsigned)*p);
+            part = escaped;
+            length = 4;
+            consumed = 1;
+        } else if (consumed == 2 && p[0] == 0xc2 && p[1] <= 0x9f) {
+            snprintf(escaped, sizeof(escaped), "\\u%04x", (unsigned)p[1]);
+            part = escaped;
+            length = 6;
+        }
+        if (length > capacity - used - 1) break;
+        memcpy(output + used, part, length);
+        used += length;
+        p += consumed;
+    }
+    output[used] = '\0';
+}
+
 static void ensure_utf8_locale(void) {
     static bool initialized = false;
     if (!initialized) {
@@ -410,6 +457,16 @@ static void print_json_escaped(const char *value) {
 
     putchar('"');
     for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+        if (*p >= 0x80) {
+            size_t length = valid_utf8_length(p);
+            if (length) {
+                fwrite(p, 1, length, stdout);
+                p += length - 1;
+            } else {
+                printf("\\ufffd");
+            }
+            continue;
+        }
         switch (*p) {
             case '"':
                 printf("\\\"");
@@ -1771,6 +1828,14 @@ void render_json_output(const char *user_host) {
 }
 
 void render_fetch_panel(const char *distro, const char *user_host) {
+    char safe_host[MAX_CAPTURE_LINE_LEN];
+    terminal_text(user_host, safe_host, sizeof(safe_host));
+    user_host = safe_host;
+    for (size_t i = 0; i < g_info_line_count; i++) {
+        char safe_line[MAX_CAPTURE_LINE_LEN];
+        terminal_text(g_info_lines[i], safe_line, sizeof(safe_line));
+        memcpy(g_info_lines[i], safe_line, strlen(safe_line) + 1);
+    }
     bool color_enabled = should_use_color();
     bool use_truecolor = terminal_supports_truecolor();
     const struct DistroLogo *logo = find_logo_for_distro(distro);
