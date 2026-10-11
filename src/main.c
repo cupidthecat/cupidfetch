@@ -478,7 +478,7 @@ const char* detect_linux_distro()
                                              distroId,         // shortname, e.g. "arch"
                                              capitalized);     // longname,  e.g. "Arch"
     if (inserted) {
-        printf("Auto-updated %s with a new entry for '%s'\n", defPath, distroId);
+        fprintf(stderr, "Auto-updated %s with a new entry for '%s'\n", defPath, distroId);
         // Also, re-parse so that a subsequent call sees it immediately (optional)
         parse_distros_def(defPath);
     }
@@ -563,7 +563,7 @@ void display_fetch() {
 	detectedDistro = detect_linux_distro();
 
     // Clear screen for a clean redraw
-    printf("\033[H\033[J");
+    if (isatty(STDOUT_FILENO)) printf("\033[H\033[J");
 
     render_fetch_panel(detectedDistro, user_host);
 	fflush(stdout); // Ensure the buffer is flushed after each draw
@@ -599,7 +599,7 @@ int main(int argc, char **argv) {
     init_g_config();
     g_log = NULL;
 
-    if (!g_json_output) {
+    if (!g_json_output && isatty(STDOUT_FILENO)) {
         // Set up signal handlers.
         setup_signal_handlers();
     }
@@ -616,7 +616,7 @@ int main(int argc, char **argv) {
             config_dir = getenv("APPDATA");
         }
 #endif
-        if (config_dir) {
+        if (config_dir && config_dir[0]) {
             snprintf(log_path, sizeof(log_path), "%s/cupidfetch/log.txt", config_dir);
         } else {
             const char* home = get_home_directory();
@@ -637,7 +637,7 @@ int main(int argc, char **argv) {
         config_dir = getenv("APPDATA");
     }
 #endif
-    if (config_dir) {
+    if (config_dir && config_dir[0]) {
         snprintf(config_path, sizeof(config_path), "%s/cupidfetch/cupidfetch.conf", config_dir);
     } else {
         const char* home = get_home_directory();
@@ -652,7 +652,7 @@ int main(int argc, char **argv) {
     // Display system information initially.
     display_fetch();
 
-    if (g_json_output) {
+    if (g_json_output || !isatty(STDOUT_FILENO)) {
         epitaph();
         return EXIT_SUCCESS;
     }

@@ -99,37 +99,64 @@ cupidconf_t *cupidconf_load(const char *filename) {
     }
     conf->entries = NULL;
 
+    /* Keep a bounded buffer, but consume each physical line in full. A long
+     * comment or value must never turn its suffix into a separate setting. */
     char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        /* Remove newline if present */
-        line[strcspn(line, "\n")] = '\0';
-
-        /* Trim whitespace */
-        char *trimmed = trim_whitespace(line);
-
-        /* Skip empty lines and comments (lines starting with '#' or ';') */
-        if (trimmed[0] == '\0' || trimmed[0] == '#' || trimmed[0] == ';')
-            continue;
-
-        /* Find the '=' separator */
-        char *equal_sign = strchr(trimmed, '=');
-        if (!equal_sign) {
-            /* No '=' on this line; skip or handle error */
-            continue;
+    char section[1024] = "";
+    int ch;
+    do {
+        size_t length = 0;
+        int invalid = 0;
+        while ((ch = fgetc(fp)) != EOF && ch != '\n') {
+            if (ch == '\0' || length == sizeof(line) - 1) {
+                invalid = 1;
+            } else {
+                line[length++] = (char)ch;
+            }
         }
-
-        /* Split key and value. */
-        *equal_sign = '\0';
-        char *key = trim_whitespace(trimmed);
-        char *value = trim_whitespace(equal_sign + 1);
-
-        if (add_entry(conf, key, value) != 0) {
-            // On allocation failure, free everything and return NULL.
+        if (ferror(fp)) {
             cupidconf_free(conf);
             fclose(fp);
             return NULL;
         }
-    }
+        line[length] = '\0';
+        if (invalid) continue;
+
+        char *trimmed = trim_whitespace(line);
+        if (trimmed[0] == '\0' || trimmed[0] == '#' || trimmed[0] == ';')
+            continue;
+
+        if (trimmed[0] == '[') {
+            char *close = strchr(trimmed + 1, ']');
+            if (!close) continue;
+            char *tail = trim_whitespace(close + 1);
+            if (*tail && *tail != '#' && *tail != ';') continue;
+            *close = '\0';
+            char *name = trim_whitespace(trimmed + 1);
+            memcpy(section, name, strlen(name) + 1);
+            continue;
+        }
+
+        char *equal_sign = strchr(trimmed, '=');
+        if (!equal_sign) continue;
+
+        *equal_sign = '\0';
+        char *key = trim_whitespace(trimmed);
+        char *value = trim_whitespace(equal_sign + 1);
+        if (!*key) continue;
+
+        /* Dotted keys are absolute, including when mixed with INI sections. */
+        char scoped_key[sizeof(section) + sizeof(line)];
+        if (*section && !strchr(key, '.')) {
+            snprintf(scoped_key, sizeof(scoped_key), "%s.%s", section, key);
+            key = scoped_key;
+        }
+        if (add_entry(conf, key, value) != 0) {
+            cupidconf_free(conf);
+            fclose(fp);
+            return NULL;
+        }
+    } while (ch != EOF);
 
     fclose(fp);
     return conf;

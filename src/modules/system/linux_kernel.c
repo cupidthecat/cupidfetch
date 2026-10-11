@@ -25,6 +25,6 @@ void get_linux_kernel() {
     if (uname(&uname_data) != 0)
         cupid_log(LogType_ERROR, "couldn't get uname data");
     else
-        print_info("Linux Kernel", uname_data.release, 20, 30);
+        print_info("Linux Kernel", "%s", 20, 30, uname_data.release);
 #endif
 }

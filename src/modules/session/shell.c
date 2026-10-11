@@ -31,5 +31,5 @@ void get_shell() {
     baseName = (baseName != NULL) ? baseName + 1 : shell;
 #endif
 
-    print_info("Shell", baseName, 20, 30);
+    print_info("Shell", "%s", 20, 30, baseName);
 }

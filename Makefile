@@ -1,7 +1,9 @@
 CUPID_LIBS=-Ilibs
 CUPID_DEV=-Wall -pedantic --std=c99 -D_POSIX_C_SOURCE=200112L -D_DEFAULT_SOURCE
 CUPID_OPT?=-O2 -DNDEBUG
+CUPID_FORMAT=-Wformat -Werror=format-security
 SRC_FILES=$(shell find src -type f -name '*.c')
+HEADER_FILES=$(shell find src libs -type f -name '*.h')
 TEST_BIN_DIR=tests/bin
 TEST_PARSERS_BIN=$(TEST_BIN_DIR)/test_parsers
 TEST_CONFIG_BIN=$(TEST_BIN_DIR)/test_config
@@ -13,19 +15,19 @@ ifeq ($(OS),Windows_NT)
 BIN_NAME=cupidfetch.exe
 endif
 
-all: clean $(BIN_NAME)
+all: $(BIN_NAME)
 
-$(BIN_NAME): $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o $(BIN_NAME) $^ $(CUPID_OPT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(BIN_NAME): $(SRC_FILES) libs/cupidconf.c $(HEADER_FILES)
+	$(CC) -o $(BIN_NAME) $(filter %.c,$^) $(CUPID_OPT) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-dev: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o $(BIN_NAME) $^ $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+dev: $(SRC_FILES) libs/cupidconf.c $(HEADER_FILES)
+	$(CC) -o $(BIN_NAME) $(filter %.c,$^) $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-asan: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o $(BIN_NAME) $^ -fsanitize=address $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+asan: $(SRC_FILES) libs/cupidconf.c $(HEADER_FILES)
+	$(CC) -o $(BIN_NAME) $(filter %.c,$^) -fsanitize=address $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-ubsan: $(SRC_FILES) libs/cupidconf.c
-	$(CC) -o $(BIN_NAME) $^ -fsanitize=undefined $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+ubsan: $(SRC_FILES) libs/cupidconf.c $(HEADER_FILES)
+	$(CC) -o $(BIN_NAME) $(filter %.c,$^) -fsanitize=undefined $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 windows:
 	$(MAKE) BIN_NAME=cupidfetch.exe CFLAGS="$(CFLAGS) -D_WIN32_WINNT=0x0601" LIBS="$(LIBS) -lws2_32"
@@ -33,17 +35,17 @@ windows:
 $(TEST_BIN_DIR):
 	mkdir -p $(TEST_BIN_DIR)
 
-$(TEST_PARSERS_BIN): $(TEST_BIN_DIR) tests/test_parsers.c src/modules/common/module_helpers.c
-	$(CC) -o $@ tests/test_parsers.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_PARSERS_BIN): tests/test_parsers.c src/modules/common/module_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_parsers.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-$(TEST_CONFIG_BIN): $(TEST_BIN_DIR) tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c
-	$(CC) -o $@ tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_CONFIG_BIN): tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-$(TEST_UNITS_BIN): $(TEST_BIN_DIR) tests/test_units.c src/modules/common/module_helpers.c
-	$(CC) -o $@ tests/test_units.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_UNITS_BIN): tests/test_units.c src/modules/common/module_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_units.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-$(TEST_PERF_BIN): $(TEST_BIN_DIR) tests/test_perf.c
-	$(CC) -o $@ tests/test_perf.c $(CUPID_DEV) $(CUPID_OPT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_PERF_BIN): tests/test_perf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_perf.c $(CUPID_DEV) $(CUPID_OPT) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 test-parsers: $(TEST_PARSERS_BIN)
 	./$(TEST_PARSERS_BIN)
@@ -57,9 +59,15 @@ test-units: $(TEST_UNITS_BIN)
 test-perf: $(BIN_NAME) $(TEST_PERF_BIN)
 	./$(TEST_PERF_BIN)
 
-test: test-parsers test-config test-units
+test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
+	python3 tests/test_cli.py
 
-.PHONY: clean test test-parsers test-config test-units test-perf
+test-install:
+	sh tests/test_install.sh
+
+test: $(BIN_NAME) test-parsers test-config test-units test-cli test-install
+
+.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install
 
 clean:
 	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN)

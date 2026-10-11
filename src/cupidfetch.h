@@ -83,6 +83,9 @@ typedef enum {
 
 // print.c
 int get_terminal_width();
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 2, 5)))
+#endif
 void print_info(const char *key, const char *format, int align_key, int align_value, ...);
 void print_cat(const char* distro);
 void begin_info_capture(void);

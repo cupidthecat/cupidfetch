@@ -10,11 +10,11 @@ void get_hostname() {
     }
     strncpy(hostname, computer_name, sizeof(hostname) - 1);
     hostname[sizeof(hostname) - 1] = '\0';
-    print_info("Hostname", hostname, 20, 30);
+    print_info("Hostname", "%s", 20, 30, hostname);
 #else
     if (gethostname(hostname, sizeof(hostname)) != 0)
         cupid_log(LogType_ERROR, "couldn't get hostname");
     else
-        print_info("Hostname", hostname, 20, 30);
+        print_info("Hostname", "%s", 20, 30, hostname);
 #endif
 }

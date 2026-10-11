@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <float.h>
+#include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ static bool parse_env_positive_double(const char *name, double default_value, do
     char *endptr = NULL;
     errno = 0;
     double parsed = strtod(raw, &endptr);
-    if (errno != 0 || endptr == raw || *endptr != '\0' || parsed <= 0.0 || parsed > DBL_MAX) {
+    if (errno != 0 || endptr == raw || *endptr != '\0' || !isfinite(parsed) || parsed <= 0.0 || parsed > DBL_MAX) {
         return false;
     }
 

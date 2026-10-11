@@ -4,13 +4,13 @@
 void get_desktop_environment() {
     const char* xdgDesktop = getenv("XDG_CURRENT_DESKTOP");
     if (xdgDesktop != NULL && strlen(xdgDesktop) > 0) {
-        print_info("DE", xdgDesktop, 20, 30);
+        print_info("DE", "%s", 20, 30, xdgDesktop);
         return;
     }
 
     const char* desktopSession = getenv("DESKTOP_SESSION");
     if (desktopSession != NULL && strlen(desktopSession) > 0) {
-        print_info("DE", desktopSession, 20, 30);
+        print_info("DE", "%s", 20, 30, desktopSession);
         return;
     }
 
@@ -36,6 +36,6 @@ void get_desktop_environment() {
 
     const char *detected = cf_detect_process_label(de_candidates, sizeof(de_candidates) / sizeof(de_candidates[0]));
     if (detected) {
-        print_info("DE", detected, 20, 30);
+        print_info("DE", "%s", 20, 30, detected);
     }
 }

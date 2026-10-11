@@ -1600,9 +1600,8 @@ int get_terminal_width() {
     }
     return 80;
 #else
-    struct winsize w;
-    // FIXME: no error handling
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    struct winsize w = {0};
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != 0 || w.ws_col == 0) return 80;
     return w.ws_col;
 #endif
 }
@@ -1616,9 +1615,8 @@ static int get_terminal_height() {
     }
     return 24;
 #else
-    struct winsize w;
-    // FIXME: no error handling
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    struct winsize w = {0};
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != 0 || w.ws_row == 0) return 24;
     return w.ws_row;
 #endif
 }

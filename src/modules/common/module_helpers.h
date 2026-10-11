@@ -18,6 +18,12 @@ bool cf_starts_with(const char *str, const char *prefix);
 char *cf_trim_spaces(char *str);
 bool cf_executable_in_path(const char *name);
 bool cf_run_command_first_line(const char *command, char *out, size_t out_size);
+bool cf_parse_proc_stat_cpu_line(const char *line, unsigned long long *idle_all, unsigned long long *total_all);
+bool cf_parse_cpuinfo(FILE *stream, char *model, size_t model_size, int *cores, int *threads);
+#ifndef _WIN32
+/* Returned strings remain valid only until the next getmntent call. */
+bool cf_read_storage_mount(FILE *stream, const char **device, const char **mountpoint, const char **type);
+#endif
 bool cf_detect_cpu_usage_percent(double *usage_out);
 bool cf_build_power_supply_path(char *dest, size_t dest_size, const char *entry_name, const char *suffix);
 void cf_format_duration_compact(unsigned long seconds, char *buffer, size_t size);

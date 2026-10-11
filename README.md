@@ -1,284 +1,35 @@
-
 # cupidfetch
 
-## Overview
+cupidfetch is a system information tool written in C for Linux and Windows. It's a hobby project for learning C, named after Cupid the cat.
 
-**This is Cupid, the cat.**
+![Cupid the cat](images/cupid.png)
 
-![cupid](images/cupid.png)
+It displays system details alongside distro ASCII art, with a JSON mode for scripts.
 
-![baby cupid](images/smol.png)
+![cupidfetch on Linux](images/demo.png)
 
-**Cupid the cat loves Linux and Windows!**
+## Quickstart
 
-cupidfetch is a system information retrieval tool written in C for Linux and Windows systems. It's a beginner-friendly, work-in-progress hobby project aimed at learning and exploring programming concepts.
+On Linux, install a C compiler, Make, and Git, then run:
 
-## Demo
-
-![demo](images/demo.png)
-![windows](images/windows.png)
-
-## Features
-
-**✔️ Fetches and displays various system details:**
-
-- Hostname  
-- Distribution (with **auto-add** for unknown distros - see below!)  
-- Kernel version  
-- Uptime  
-- Package count  
-- Package count (with package-manager coverage map + safer fallback logic)  
-- Shell  
-- Terminal  
-- Desktop environment  
-- Window manager  
-- Theme  
-- Icons  
-- Display server (Wayland/X11)  
-- Network status (interface state, local/public IP with IPv4/IPv6 local detection)  
-- Battery level  
-- GPU  
-- Username  
-- Memory usage  
-- CPU model + topology (and usage where available)  
-- Storage/disk usage per mount  
-- Signal handling for window resize on Linux/Unix terminals (`SIGWINCH`)  
-- And more
-
-**✔️ Auto-add unknown distros to `distros.def` (Linux):**  
-If cupidfetch detects an unrecognized Linux distro in `/etc/os-release`, it automatically inserts a new line into `distros.def` (under an "auto added" section) so the distro becomes recognized in subsequent runs.  
-
-**✔️ Per-distro ASCII logos with truecolor + fallback:**
-
-- Shows distro-specific ASCII logos for common distros/OSes (e.g., Ubuntu, Debian, Arch, Fedora, Manjaro, Alpine, Windows 10/11)
-- Uses truecolor logo tint when terminal supports it (`COLORTERM=truecolor` or `24bit`)
-- Falls back to a generic logo when distro art is unavailable
-
-**✔️ Built for beginners:**  
-
-- Simple code  
-- Easy to understand and contribute  
-
-**Supported Distros / OSes:**  
-
-- Debian (Ubuntu, elementary, Mint) [Verified ✔️]  
-- Arch (Manjaro, Artix, EndeavourOS) [Verified ✔️]  
-- Fedora [Verified ✔️]  
-- Windows 10 / Windows 11 [Supported]
-- Others are in `data/distros.def` (now automatically updated if not recognized)
-
-## Dependencies
-
-cupidfetch relies on the following components and tools:
-
-1. **C Compiler:**  
-   Written in C, requiring a C compiler. The recommended compiler is GCC.
-
-2. **cupidconf:**  
-   **cupidfetch now uses cupidconf instead of inih!**  
-   - Allows more flexible configuration parsing, supporting wildcards (`*`) for key matching, list retrieval, etc.
-
-3. **Git:**  
-   - For cloning the repository.
-
-## How to Install Dependencies
-
-### GCC (GNU Compiler Collection)
-
-Often available via your distro’s package manager. On Debian/Ubuntu-based systems:
-```bash
-sudo apt update && sudo apt install build-essential
+```sh
+git clone https://github.com/cupidthecat/cupidfetch
+cd cupidfetch
+make
+./cupidfetch
 ```
 
-### Git
+Use `./cupidfetch --json` for JSON output. To install the sample configuration, run `sh ./install-config.sh`; existing configs are left unchanged.
 
-Install through your distro’s package manager. On Debian/Ubuntu-based systems:
-```bash
-sudo apt install git
-```
+## Documentation
 
-## Usage
+- [Build and run on Linux or Windows](docs/usage.md#build-and-run)
+- [Configuration and modules](docs/usage.md#configuration)
+- [Tests and performance checks](docs/usage.md#tests-and-debugging)
+- [Distro detection and logos](docs/usage.md#distro-detection-and-logos)
 
-1. **Clone** the repository:
-   ```bash
-   git clone https://github.com/frankischilling/cupidfetch
-   ```
-2. **Compile**:
-   - Linux/macOS (with `make`):
-     ```bash
-     make
-     ```
-   - Windows (MinGW GCC, no `make` required):
-     ```powershell
-     $src = Get-ChildItem -Recurse -File src -Filter *.c | ForEach-Object { $_.FullName }
-     gcc -o cupidfetch.exe $src libs/cupidconf.c -O2 -DNDEBUG -Ilibs -D_WIN32_WINNT=0x0601 -lws2_32
-     ```
-   - If you have `make` on Windows:
-     ```bash
-     make windows
-     ```
-3. **Run**:
-   - **From the current directory**:
-      ```bash
-      ./cupidfetch
-      ```
-   - **JSON mode (script-friendly)**:
-     ```bash
-     ./cupidfetch --json
-     ```
-   - **Windows executable**:
-     ```powershell
-     .\cupidfetch.exe
-     .\cupidfetch.exe --json
-     ```
-   - **From anywhere** (optional):
-     ```bash
-     sudo mv cupidfetch /usr/local/bin
-     cupidfetch
-     ```
-4. **Debug**:
-   - Use `make clean asan` or `make clean ubsan` to check for overflows/memory leaks or undefined behavior.
-
-5. **Run lightweight tests**:
-   - `make test` runs all lightweight parser/detector tests.
-   - `make test-parsers` covers distro definition + `/etc/os-release` ID parsing (Linux path).
-   - `make test-config` covers config parsing (`modules`, units, and boolean flags).
-   - `make test-units` covers byte-to-unit conversion helpers.
-   - `make test-perf` runs a startup/runtime performance benchmark (JSON mode, core module profile) and fails if mean runtime exceeds budget.
-
-6. **Track performance over time**:
-   - Default benchmark budget is mean `<= 150ms` across 20 runs (after warmup).
-   - Tune benchmark knobs via env vars:
-     - `CUPIDFETCH_PERF_MAX_MEAN_MS` (e.g. `200`)
-     - `CUPIDFETCH_PERF_RUNS` (e.g. `30`)
-     - `CUPIDFETCH_PERF_WARMUP` (e.g. `5`)
-   - Example:
-     ```bash
-     CUPIDFETCH_PERF_MAX_MEAN_MS=200 CUPIDFETCH_PERF_RUNS=30 make test-perf
-     ```
-
-7. **View the Output**:  
-   Prints system info such as distro, kernel, uptime, etc., and displays ASCII art for recognized distros.
-
-### Build Performance Defaults
-
-- `make cupidfetch` now builds with optimization flags by default: `-O2 -DNDEBUG`.
-- Override if needed, for example:
-   ```bash
-   make CFLAGS='-O3 -march=native'
-   ```
-
-### CLI Flags
-
-- `--json` prints a single JSON object and exits (no screen clear, no resize loop).
-- `--force-distro <name>` overrides detected distro for logo/display testing.
-- `-h`, `--help` shows usage.
-
-## Configuration File
-
-You can use the `install-config.sh` script to create a configuration file for cupidfetch. 
-
-- **Location**:
-  ```
-  ${XDG_CONFIG_HOME}/cupidfetch/cupidfetch.conf
-  ```
-  or, if `$XDG_CONFIG_HOME` is not set:
-  ```
-  $HOME/.config/cupidfetch/cupidfetch.conf
-  ```
-  On Windows, `%APPDATA%/cupidfetch/cupidfetch.conf` is used when available.
-
-### Example `cupidfetch.conf`
-```ini
-# List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell de wm theme icons display_server net ip battery gpu memory cpu storage
-
-# Memory display settings
-memory.unit-str = MB
-memory.unit-size = 1000000
-
-# Storage display settings
-storage.unit-str = GB
-storage.unit-size = 1000000000
-
-# Network display settings
-# false = mask public IP (default), true = show full public IP
-network.show-full-public-ip = false
-```
-Adjust as needed; e.g., switch units to test different scale factors.
-
-## Auto-Add Unknown Distros (Linux)
-
-Whenever cupidfetch encounters a distro that isn’t listed in `data/distros.def`, it:
-
-1. Warns you that the distro is unknown.  
-2. Inserts a new `DISTRO("shortname", "Capitalized", "")` entry into `distros.def`, under an `/* auto added */` comment.
-3. Re-parses `distros.def`, so subsequent runs show the proper distro name.
-
-> **Note**: Package counting now prioritizes an internal distro→package-manager coverage map and direct, safer counting strategies (filesystem/database reads where possible). The distro command in `distros.def` is now a fallback and shell-heavy commands are intentionally ignored.
-
-## Logo Rendering
-
-- `cupidfetch` now picks a logo by detected distro name.
-- If your terminal supports truecolor, logos are rendered with distro-tinted 24-bit ANSI color.
-- If no distro-specific logo exists, `cupidfetch` prints a generic fallback logo instead of failing.
-
-## Adding Support Manually
-
-If you prefer **manual** updates (or want to tweak the auto-added lines), edit `data/distros.def`. For example, to add “cupidOS” which uses `dpkg`:
-```text
-DISTRO("ubuntu" , "Ubuntu" , "")
-DISTRO("cupidOS", "cupidOS", "")
-```
-However, thanks to auto-add, you often won’t need to touch this file for new distros-cupidfetch will do it for you!
-
-## Log File
-
-If `cupidfetch` cannot create a log file at `.../cupidfetch/log.txt`, it falls back to `stderr`.  
-To suppress logging:
-```bash
-cupidfetch 2> /dev/null
-```
-
-## Requirements
-
-- Linux or Windows
-- C compiler (GCC recommended)
-- Basic knowledge of C programming
-- Curiosity for exploring system information
-
-## How to Contribute
-
-Everyone is welcome-beginner or expert!
-
-- **Discord:** [Join here](https://discord.gg/698GBkg2KR)  
-- Beginners: Great project to learn, ask questions, and try new ideas.  
-- Experienced devs: Help refine, optimize, or expand coverage for more distros.
-
-## To-Do List
-
-- [ ] Add ASCII art for each distro (e.g., “Arch kitten saying ‘I use Arch btw’”)
-- [ ] Add colors/user theming
-- [ ] Fix alignment for proper ASCII art display
-- [ ] Add Unicode icons (Nerd Fonts?)
-- [ ] `make install`
-- [ ] Arch Linux AUR package
-- [ ] Per-module config sections
-- [ ] Implement dynamic WM & DE detection (remove hard-coded checks)
-- [ ] Wayland
-- [X] Auto-detect and update distros in `distros.def`
-- [X] Signal Handling for Window Resize (`SIGWINCH`)
-- [X] Improve distro detection
-- [X] Add memory info
-- [X] Add storage info
-- [X] Fix terminal info, DE, and WM detection
-- [X] Implement a config system (**migrated to cupidconf**)
-- [X] Clean up code and improve display formatting
-
-## Notes
-
-This project is a continuous work-in-progress for learning and experimentation. Expect frequent changes or refactoring as new features are added.
+The project is still in development. Contributions and questions are welcome in [Discord](https://discord.gg/698GBkg2KR).
 
 ## License
 
-[GNU General Public License 2.0 or later](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
+[GNU General Public License 2.0 or later](LICENSE).
