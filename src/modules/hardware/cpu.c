@@ -1,3 +1,4 @@
+#include "../common/subprocess.h"
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
 
@@ -7,7 +8,7 @@ void get_cpu() {
     unsigned int total_cores = 0;
     unsigned int total_threads = 0;
 
-    FILE *fp = popen("wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list 2>nul", "r");
+    FILE *fp = cf_capture_command("wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (fp) {
         char line[512];
         while (fgets(line, sizeof(line), fp)) {
@@ -39,7 +40,7 @@ void get_cpu() {
                 continue;
             }
         }
-        pclose(fp);
+        fclose(fp);
     }
 
     if (cpu_name[0] == '\0') {
@@ -54,7 +55,7 @@ void get_cpu() {
     }
 
     if (cf_contains_icase(cpu_name, "Family") || cf_contains_icase(cpu_name, "GenuineIntel")) {
-        FILE *reg_fp = popen("reg query \"HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0\" /v ProcessorNameString 2>nul", "r");
+        FILE *reg_fp = cf_capture_command("reg query \"HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0\" /v ProcessorNameString 2>nul", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
         if (reg_fp) {
             char reg_line[512];
             while (fgets(reg_line, sizeof(reg_line), reg_fp)) {
@@ -74,7 +75,7 @@ void get_cpu() {
                     break;
                 }
             }
-            pclose(reg_fp);
+            fclose(reg_fp);
         }
     }
 

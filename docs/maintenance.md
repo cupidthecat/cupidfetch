@@ -6,10 +6,11 @@ The October 2026 review started from `5c2927e13849493e010cdb70728b131378db4162`.
 - [Package-counting checks](package-counting.md): installed states, metadata, complete records and command failures.
 - [Windows PATH validation](windows-validation.md): native file probes, command suffixes and platform tests.
 - [Safe distro definition updates](distro-file-updates.md): bounded preparation, atomic replacement and failure preservation.
+- [Detector subprocess limits](subprocess-capture.md): timeouts, output limits and owned process cleanup.
 - [Build and test commands](usage.md#tests-and-debugging).
 
 The combined local Linux suite includes parser, config, unit/accounting, package,
-PATH and distro-file C tests, five CLI tests and isolated installer tests. Release
+PATH, distro-file and subprocess C tests, five CLI tests and isolated installer tests. Release
 and AddressSanitizer/UndefinedBehaviorSanitizer runs passed. LeakSanitizer was
 disabled for the ptrace-based review environment. Hosted checks remain the source
 of truth for each published commit; local Linux results do not establish a native
@@ -19,8 +20,6 @@ Windows pass.
 
 - [Issue #25](https://github.com/cupidthecat/cupidfetch/issues/25): accurate native
   winget, Chocolatey and Scoop table parsing still needs platform-specific work.
-- [Issue #31](https://github.com/cupidthecat/cupidfetch/issues/31): detector
-  subprocesses need bounded lifetimes and cleanup on timeout.
 
 These are known remaining gaps. The review and passing tests are not an exhaustive
 proof that every module works on every supported system.

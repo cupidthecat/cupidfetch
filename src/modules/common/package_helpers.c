@@ -1,3 +1,4 @@
+#include "subprocess.h"
 #include "../../cupidfetch.h"
 #include "package_helpers.h"
 #include <limits.h>
@@ -126,14 +127,12 @@ bool cf_count_package_file(const char *path, cf_package_format format, unsigned 
 
 bool cf_count_package_command(const char *command, cf_package_format format, unsigned long *count_out) {
     if (!command || !*command || !count_out) return false;
-    FILE *stream = popen(command, "r");
+    FILE *stream = cf_capture_command(command, CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
     if (!stream) return false;
     unsigned long count;
     bool ok = cf_count_package_stream(stream, format, &count);
-    /* Drain after parser failures so a child with more output can finish. */
-    if (!ok && !ferror(stream)) while (fgetc(stream) != EOF) {}
-    /* Zero alone means normal success for both POSIX pclose and _pclose. */
-    if (pclose(stream) != 0) ok = false;
+    /* Capture has already checked the child exit status and reaped it. */
+    if (fclose(stream) != 0) ok = false;
     if (ok) *count_out = count;
     return ok;
 }

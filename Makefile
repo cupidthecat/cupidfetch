@@ -9,6 +9,7 @@ TEST_PARSERS_BIN=$(TEST_BIN_DIR)/test_parsers
 TEST_CONFIG_BIN=$(TEST_BIN_DIR)/test_config
 TEST_UNITS_BIN=$(TEST_BIN_DIR)/test_units
 TEST_PERF_BIN=$(TEST_BIN_DIR)/test_perf
+TEST_SUBPROCESS_BIN=$(TEST_BIN_DIR)/test_subprocess
 TEST_DISTRO_FILE_BIN=$(TEST_BIN_DIR)/test_distro_file
 TEST_PATH_BIN=$(TEST_BIN_DIR)/test_posix_path
 TEST_PACKAGES_BIN=$(TEST_BIN_DIR)/test_packages
@@ -38,26 +39,26 @@ windows:
 $(TEST_BIN_DIR):
 	mkdir -p $(TEST_BIN_DIR)
 
-$(TEST_PARSERS_BIN): tests/test_parsers.c src/modules/common/module_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
-	$(CC) -o $@ tests/test_parsers.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_PARSERS_BIN): tests/test_parsers.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_parsers.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 $(TEST_CONFIG_BIN): tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
 	$(CC) -o $@ tests/test_config.c tests/test_stubs.c src/config.c libs/cupidconf.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-$(TEST_UNITS_BIN): tests/test_units.c src/modules/common/module_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
-	$(CC) -o $@ tests/test_units.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_UNITS_BIN): tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_units.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 $(TEST_PERF_BIN): tests/test_perf.c $(HEADER_FILES) | $(TEST_BIN_DIR)
 	$(CC) -o $@ tests/test_perf.c $(CUPID_DEV) $(CUPID_OPT) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
-$(TEST_PACKAGES_BIN): tests/test_packages.c src/modules/common/package_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
-	$(CC) -o $@ tests/test_packages.c src/modules/common/package_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_PACKAGES_BIN): tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_packages.c src/modules/common/package_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 test-packages: $(TEST_PACKAGES_BIN)
 	./$(TEST_PACKAGES_BIN)
 
-$(TEST_PATH_BIN): tests/test_posix_path.c src/modules/common/module_helpers.c $(HEADER_FILES) | $(TEST_BIN_DIR)
-	$(CC) -o $@ tests/test_posix_path.c src/modules/common/module_helpers.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+$(TEST_PATH_BIN): tests/test_posix_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_posix_path.c src/modules/common/module_helpers.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
 
 test-path: $(TEST_PATH_BIN)
 	./$(TEST_PATH_BIN)
@@ -67,6 +68,12 @@ $(TEST_DISTRO_FILE_BIN): tests/test_distro_file.c src/modules/common/distro_file
 
 test-distro-file: $(TEST_DISTRO_FILE_BIN)
 	./$(TEST_DISTRO_FILE_BIN)
+
+$(TEST_SUBPROCESS_BIN): tests/test_subprocess.c src/modules/common/subprocess.c $(HEADER_FILES) | $(TEST_BIN_DIR)
+	$(CC) -o $@ tests/test_subprocess.c src/modules/common/subprocess.c $(CUPID_DEV) $(CUPID_FORMAT) $(CFLAGS) $(LDFLAGS) $(CUPID_LIBS) $(LIBS) $(LD_LIBS)
+
+test-subprocess: $(TEST_SUBPROCESS_BIN)
+	./$(TEST_SUBPROCESS_BIN)
 
 test-parsers: $(TEST_PARSERS_BIN)
 	./$(TEST_PARSERS_BIN)
@@ -86,11 +93,11 @@ test-cli: $(BIN_NAME) $(TEST_PERF_BIN)
 test-install:
 	sh tests/test_install.sh
 
-test: $(BIN_NAME) test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
+test: $(BIN_NAME) test-subprocess test-distro-file test-path test-packages test-parsers test-config test-units test-cli test-install
 
-.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file
+.PHONY: all dev asan ubsan windows clean test test-parsers test-config test-units test-perf test-cli test-install test-packages test-path test-distro-file test-subprocess
 
 clean:
-	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN)
+	rm -f cupidfetch cupidfetch.exe *.o $(TEST_PARSERS_BIN) $(TEST_CONFIG_BIN) $(TEST_UNITS_BIN) $(TEST_PERF_BIN) $(TEST_PACKAGES_BIN) $(TEST_PATH_BIN) $(TEST_DISTRO_FILE_BIN) $(TEST_SUBPROCESS_BIN)
 
 
