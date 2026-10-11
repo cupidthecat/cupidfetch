@@ -1,5 +1,6 @@
 #include "subprocess.h"
 #include "module_helpers.h"
+#include "network_helpers.h"
 #include <limits.h>
 #ifndef _WIN32
 #include <mntent.h>
@@ -586,140 +587,195 @@ bool cf_detect_gpu_from_pci_slot(const char *pci_slot, char *gpu_out, size_t gpu
 #endif
 }
 
-bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
-#ifdef _WIN32
-    if (!iface_out || iface_out_size == 0 || !ip_out || ip_out_size == 0 || !is_up) return false;
+bool cf_ip_candidate_better(const struct cf_ip_candidate *candidate, const struct cf_ip_candidate *best) {
+    if (!candidate || !candidate->iface[0] || !candidate->ip[0]) return false;
+    if (!best || !best->ip[0]) return true;
+    if (candidate->up != best->up) return candidate->up;
+    if (candidate->running != best->running) return candidate->running;
+    if (candidate->default_route != best->default_route) return candidate->default_route;
+    if (candidate->family != best->family) return candidate->family == AF_INET;
+    if (candidate->default_route && candidate->metric != best->metric) return candidate->metric < best->metric;
+    int order = strcmp(candidate->iface, best->iface);
+    return order < 0 || (order == 0 && strcmp(candidate->ip, best->ip) < 0);
+}
 
-    FILE *fp = cf_capture_command("ipconfig", CF_COMMAND_TIMEOUT_MS, CF_COMMAND_OUTPUT_LIMIT);
-    if (!fp) return false;
+bool cf_ip_address_text(const struct sockaddr *address, char *out, size_t size) {
+    if (!address || !out || !size) return false;
+    const void *bytes;
+    if (address->sa_family == AF_INET) {
+        const struct sockaddr_in *v4 = (const struct sockaddr_in *)address;
+        unsigned long ip = ntohl(v4->sin_addr.s_addr);
+        if ((ip >> 24) == 0 || (ip >> 24) == 127 || (ip >> 24) >= 224 ||
+            (ip >> 16) == 0xa9fe) return false;
+        bytes = &v4->sin_addr;
+    } else if (address->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)address;
+        if (IN6_IS_ADDR_UNSPECIFIED(&v6->sin6_addr) || IN6_IS_ADDR_LOOPBACK(&v6->sin6_addr) ||
+            IN6_IS_ADDR_LINKLOCAL(&v6->sin6_addr) || IN6_IS_ADDR_MULTICAST(&v6->sin6_addr) ||
+            IN6_IS_ADDR_V4MAPPED(&v6->sin6_addr)) return false;
+        bytes = &v6->sin6_addr;
+    } else return false;
+    return inet_ntop(address->sa_family, bytes, out, size) != NULL;
+}
 
-    char line[512];
-    char current_iface[128] = "";
-    bool in_adapter = false;
-    bool disconnected = false;
-
-    while (fgets(line, sizeof(line), fp)) {
-        cf_trim_newline(line);
-        char *trimmed = cf_trim_spaces(line);
-        if (!trimmed || !trimmed[0]) continue;
-
-        if (cf_contains_icase(trimmed, "adapter") && trimmed[strlen(trimmed) - 1] == ':') {
-            const char *start = strstr(trimmed, "adapter ");
-            if (start) {
-                start += strlen("adapter ");
-                size_t len = strlen(start);
-                if (len > 0 && start[len - 1] == ':') len--;
-                if (len >= sizeof(current_iface)) len = sizeof(current_iface) - 1;
-                memcpy(current_iface, start, len);
-                current_iface[len] = '\0';
-                in_adapter = true;
-                disconnected = false;
-            } else {
-                in_adapter = false;
-            }
-            continue;
-        }
-
-        if (!in_adapter) continue;
-
-        if (cf_contains_icase(trimmed, "Media State") && cf_contains_icase(trimmed, "disconnected")) {
-            disconnected = true;
-            continue;
-        }
-
-        if (cf_contains_icase(trimmed, "IPv4 Address")) {
-            char *colon = strrchr(trimmed, ':');
-            if (!colon) continue;
-
-            char *ip = cf_trim_spaces(colon + 1);
-            if (!ip || !ip[0]) continue;
-
-            char *preferred = strchr(ip, '(');
-            if (preferred) {
-                *preferred = '\0';
-                ip = cf_trim_spaces(ip);
-            }
-
-            if (strncmp(ip, "169.254.", 8) == 0) continue;
-
-            strncpy(iface_out, current_iface[0] ? current_iface : "Ethernet", iface_out_size - 1);
-            iface_out[iface_out_size - 1] = '\0';
-            strncpy(ip_out, ip, ip_out_size - 1);
-            ip_out[ip_out_size - 1] = '\0';
-            *is_up = !disconnected;
-            fclose(fp);
-            return true;
-        }
+static bool cf_hex_field(const char *text, size_t digits, unsigned long *out) {
+    if (strlen(text) != digits) return false;
+    for (size_t i = 0; i < digits; ++i) if (!isxdigit((unsigned char)text[i])) return false;
+    if (out) {
+        errno = 0;
+        *out = strtoul(text, NULL, 16);
+        if (errno == ERANGE) return false;
     }
-
-    fclose(fp);
-    return false;
-#else
-    struct ifaddrs *ifaddr = NULL;
-    struct ifaddrs *ifa;
-
-    if (getifaddrs(&ifaddr) == -1) {
-        return false;
-    }
-
-    bool found = false;
-    bool found_up = false;
-    char iface_buf[64] = "";
-    char ip_buf[INET6_ADDRSTRLEN] = "";
-    int found_family = 0;
-
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr == NULL) continue;
-
-        int family = ifa->ifa_addr->sa_family;
-        if (family != AF_INET && family != AF_INET6) continue;
-        if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) continue;
-
-        char ip[INET6_ADDRSTRLEN] = "";
-        if (family == AF_INET) {
-            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-            if (!inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip))) continue;
-            if (strncmp(ip, "127.", 4) == 0) continue;
-        } else {
-            struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)ifa->ifa_addr;
-            if (!inet_ntop(AF_INET6, &addr6->sin6_addr, ip, sizeof(ip))) continue;
-            if (strcmp(ip, "::1") == 0) continue;
-        }
-
-        bool current_up = (ifa->ifa_flags & IFF_UP) != 0;
-        bool better_candidate = false;
-        if (!found) {
-            better_candidate = true;
-        } else if (!found_up && current_up) {
-            better_candidate = true;
-        } else if (found_family == AF_INET6 && family == AF_INET) {
-            better_candidate = true;
-        }
-
-        if (better_candidate) {
-            strncpy(iface_buf, ifa->ifa_name, sizeof(iface_buf));
-            iface_buf[sizeof(iface_buf) - 1] = '\0';
-            strncpy(ip_buf, ip, sizeof(ip_buf));
-            ip_buf[sizeof(ip_buf) - 1] = '\0';
-            found = true;
-            found_up = current_up;
-            found_family = family;
-
-            if (found_up && found_family == AF_INET) break;
-        }
-    }
-
-    freeifaddrs(ifaddr);
-
-    if (!found) return false;
-
-    strncpy(iface_out, iface_buf, iface_out_size);
-    iface_out[iface_out_size - 1] = '\0';
-    strncpy(ip_out, ip_buf, ip_out_size);
-    ip_out[ip_out_size - 1] = '\0';
-    *is_up = found_up;
     return true;
+}
+
+bool cf_parse_default_route(const char *line, int family, char *iface, size_t size, unsigned long *metric) {
+    if (!line || !iface || !size || !metric) return false;
+    char name[256], dest[33], source[33], gateway[33], flags_text[9], metric_text[32];
+    char mask[9], extra;
+    unsigned long flags, cost;
+    if (family == AF_INET) {
+        char ref[32], use[32], mtu[32], window[32], irtt[32];
+        if (sscanf(line, "%255s %32s %32s %8s %31s %31s %31s %8s %31s %31s %31s %c",
+                   name, dest, gateway, flags_text, ref, use, metric_text, mask, mtu, window, irtt, &extra) != 11) return false;
+        char *end;
+        if (!metric_text[0] || strspn(metric_text, "0123456789") != strlen(metric_text)) return false;
+        errno = 0;
+        cost = strtoul(metric_text, &end, 10);
+        if (errno == ERANGE || *end || !cf_hex_field(dest, 8, NULL) || strcmp(dest, "00000000") ||
+            !cf_hex_field(mask, 8, NULL) || strcmp(mask, "00000000") || !cf_hex_field(gateway, 8, NULL) ||
+            strlen(flags_text) > 8 || !cf_hex_field(flags_text, strlen(flags_text), &flags)) return false;
+    } else if (family == AF_INET6) {
+        char prefix[3], source_prefix[3], ref[9], use[9];
+        if (sscanf(line, "%32s %2s %32s %2s %32s %31s %8s %8s %8s %255s %c",
+                   dest, prefix, source, source_prefix, gateway, metric_text, ref, use, flags_text, name, &extra) != 10) return false;
+        if (!cf_hex_field(dest, 32, NULL) || strspn(dest, "0") != 32 || strcmp(prefix, "00") ||
+            !cf_hex_field(source, 32, NULL) || strspn(source, "0") != 32 || strcmp(source_prefix, "00") ||
+            !cf_hex_field(gateway, 32, NULL) || !cf_hex_field(metric_text, 8, &cost) ||
+            !cf_hex_field(ref, 8, NULL) || !cf_hex_field(use, 8, NULL) || !cf_hex_field(flags_text, 8, &flags)) return false;
+    } else return false;
+    if (!(flags & 0x1) || (flags & 0x200) || strlen(name) >= size) return false;
+    strcpy(iface, name);
+    *metric = cost;
+    return true;
+}
+
+#ifndef _WIN32
+void cf_ip_candidate_routes(struct cf_ip_candidate *candidate, FILE *routes) {
+    if (!candidate || !routes) return;
+    rewind(routes);
+    char line[1024], iface[256];
+    unsigned long metric;
+    while (fgets(line, sizeof(line), routes)) {
+        if (cf_parse_default_route(line, candidate->family, iface, sizeof(iface), &metric) &&
+            strcmp(iface, candidate->iface) == 0 && (!candidate->default_route || metric < candidate->metric)) {
+            candidate->default_route = true;
+            candidate->metric = metric;
+        }
+    }
+}
+bool cf_select_posix_ip(const struct ifaddrs *addresses, FILE *v4_routes, FILE *v6_routes,
+                        struct cf_ip_candidate *best) {
+    if (!best) return false;
+    memset(best, 0, sizeof(*best));
+    for (const struct ifaddrs *address = addresses; address; address = address->ifa_next) {
+        struct cf_ip_candidate candidate = {0};
+        if (!address->ifa_name || (address->ifa_flags & IFF_LOOPBACK) ||
+            !cf_ip_address_text(address->ifa_addr, candidate.ip, sizeof(candidate.ip))) continue;
+        snprintf(candidate.iface, sizeof(candidate.iface), "%s", address->ifa_name);
+        candidate.family = address->ifa_addr->sa_family;
+        candidate.up = (address->ifa_flags & IFF_UP) != 0;
+        candidate.running = (address->ifa_flags & IFF_RUNNING) != 0;
+        cf_ip_candidate_routes(&candidate, candidate.family == AF_INET ? v4_routes : v6_routes);
+        if (cf_ip_candidate_better(&candidate, best)) *best = candidate;
+    }
+    return best->ip[0] != '\0';
+}
+#else
+bool cf_select_windows_ip(const IP_ADAPTER_ADDRESSES *adapters, const MIB_IPFORWARD_TABLE2 *routes,
+                          struct cf_ip_candidate *best) {
+    if (!best) return false;
+    memset(best, 0, sizeof(*best));
+    for (const IP_ADAPTER_ADDRESSES *adapter = adapters; adapter; adapter = adapter->Next) {
+        if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+        for (const IP_ADAPTER_UNICAST_ADDRESS *address = adapter->FirstUnicastAddress; address; address = address->Next) {
+            struct cf_ip_candidate candidate = {0};
+            const struct sockaddr *sa = address->Address.lpSockaddr;
+            if (!sa || (sa->sa_family != AF_INET && sa->sa_family != AF_INET6) ||
+                address->Address.iSockaddrLength < (int)(sa->sa_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) ||
+                address->DadState != IpDadStatePreferred || address->ValidLifetime == 0 ||
+                address->PreferredLifetime == 0 || !cf_ip_address_text(sa, candidate.ip, sizeof(candidate.ip))) continue;
+            if (!adapter->FriendlyName || !WideCharToMultiByte(CP_UTF8, 0, adapter->FriendlyName, -1,
+                    candidate.iface, sizeof(candidate.iface), NULL, NULL)) {
+                snprintf(candidate.iface, sizeof(candidate.iface), "%s", adapter->AdapterName ? adapter->AdapterName : "Network");
+            }
+            candidate.family = sa->sa_family;
+            candidate.up = adapter->OperStatus == IfOperStatusUp;
+            candidate.running = candidate.up;
+            if (routes) for (ULONG i = 0; i < routes->NumEntries; ++i) {
+                const MIB_IPFORWARD_ROW2 *route = &routes->Table[i];
+                if (route->InterfaceLuid.Value != adapter->Luid.Value ||
+                    route->DestinationPrefix.Prefix.si_family != candidate.family ||
+                    route->DestinationPrefix.PrefixLength != 0 || route->ValidLifetime == 0 || route->Loopback) continue;
+                unsigned long long metric = (unsigned long long)route->Metric +
+                    (candidate.family == AF_INET ? adapter->Ipv4Metric : adapter->Ipv6Metric);
+                if (!candidate.default_route || metric < candidate.metric) {
+                    candidate.default_route = true;
+                    candidate.metric = metric;
+                }
+            }
+            if (cf_ip_candidate_better(&candidate, best)) *best = candidate;
+        }
+    }
+    return best->ip[0] != '\0';
+}
 #endif
+
+bool cf_detect_primary_ip(char *iface_out, size_t iface_out_size, char *ip_out, size_t ip_out_size, bool *is_up) {
+    if (!iface_out || !iface_out_size || !ip_out || !ip_out_size || !is_up) return false;
+    iface_out[0] = ip_out[0] = '\0';
+    *is_up = false;
+    struct cf_ip_candidate best = {0};
+#ifdef _WIN32
+    ULONG size = 15000, result = ERROR_BUFFER_OVERFLOW;
+    IP_ADAPTER_ADDRESSES *adapters = NULL;
+    for (int attempt = 0; attempt < 3 && result == ERROR_BUFFER_OVERFLOW; ++attempt) {
+        free(adapters);
+        adapters = malloc(size);
+        if (!adapters) return false;
+        result = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                     GAA_FLAG_SKIP_DNS_SERVER, NULL, adapters, &size);
+    }
+    if (result != NO_ERROR) { free(adapters); return false; }
+    MIB_IPFORWARD_TABLE2 *routes = NULL;
+    if (GetIpForwardTable2(AF_UNSPEC, &routes) != NO_ERROR) routes = NULL;
+    cf_select_windows_ip(adapters, routes, &best);
+    if (routes) FreeMibTable(routes);
+    free(adapters);
+#else
+    struct ifaddrs *addresses = NULL;
+    if (getifaddrs(&addresses) == -1) return false;
+    FILE *v4_routes = NULL, *v6_routes = NULL;
+#ifdef __linux__
+    v4_routes = fopen("/proc/net/route", "r");
+    v6_routes = fopen("/proc/net/ipv6_route", "r");
+#endif
+    cf_select_posix_ip(addresses, v4_routes, v6_routes, &best);
+    if (v4_routes) fclose(v4_routes);
+    if (v6_routes) fclose(v6_routes);
+    freeifaddrs(addresses);
+#endif
+    if (!best.ip[0]) return false;
+    size_t iface_length = strlen(best.iface);
+    if (iface_length >= iface_out_size) {
+        iface_length = iface_out_size - 1;
+        while (iface_length && ((unsigned char)best.iface[iface_length] & 0xc0) == 0x80) --iface_length;
+    }
+    memcpy(iface_out, best.iface, iface_length);
+    iface_out[iface_length] = '\0';
+    snprintf(ip_out, ip_out_size, "%s", best.ip);
+    *is_up = best.up;
+    return true;
 }
 
 bool cf_get_public_ip(char *ip_out, size_t ip_out_size) {
