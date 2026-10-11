@@ -1,6 +1,10 @@
 #include "../../cupidfetch.h"
 #include "../common/module_helpers.h"
 #include "../common/package_helpers.h"
+#ifdef _WIN32
+#include "../common/subprocess.h"
+#include "../common/windows_packages.h"
+#endif
 
 typedef bool (*count_fn_t)(unsigned long *count_out);
 
@@ -172,12 +176,44 @@ static bool append_labeled_count(char *out, size_t out_size, unsigned long count
     return true;
 }
 
+#ifdef _WIN32
+static bool count_windows_command(const char *command,
+                                  bool (*parse)(FILE *, unsigned long *),
+                                  unsigned long *count_out) {
+    FILE *stream = cf_capture_command(command, CF_COMMAND_TIMEOUT_MS,
+                                      CF_COMMAND_OUTPUT_LIMIT);
+    if (!stream) return false;
+    unsigned long count;
+    bool ok = parse(stream, &count);
+    if (fclose(stream) != 0) ok = false;
+    if (ok) *count_out = count;
+    return ok;
+}
+
+static bool count_winget(unsigned long *count_out) {
+    return count_windows_command("winget list --disable-interactivity",
+                                 cf_count_winget_list, count_out);
+}
+
+static bool count_choco(unsigned long *count_out) {
+    unsigned long major;
+    if (!count_windows_command("choco --version", cf_parse_choco_major, &major))
+        return false;
+    return count_windows_command(cf_choco_list_command(major),
+                                 cf_count_choco_packages, count_out);
+}
+
+static bool count_scoop(unsigned long *count_out) {
+    return count_windows_command("scoop export", cf_count_scoop_export, count_out);
+}
+#endif
+
 void get_package_count() {
 #ifdef _WIN32
     static const package_manager_probe win_pkg_managers[] = {
-        {"winget", "winget", NULL, "winget list 2>nul"},
-        {"choco", "choco", NULL, "choco list -lo 2>nul"},
-        {"scoop", "scoop", NULL, "scoop list 2>nul"},
+        {"winget", "winget", count_winget, NULL},
+        {"choco", "choco", count_choco, NULL},
+        {"scoop", "scoop", count_scoop, NULL},
     };
 
     char output[256] = "";
