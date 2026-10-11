@@ -22,35 +22,87 @@ static void cf_exec_cache_reset(void) {
     g_exec_cache_path_set = false;
 }
 
+#ifdef _WIN32
+static char g_exec_cache_pathext[4096] = "";
+
+static const char *cf_path_extensions(void) {
+    const char *extensions = getenv("PATHEXT");
+    return extensions && extensions[0] ? extensions : ".COM;.EXE;.BAT;.CMD";
+}
+
+static bool cf_windows_file_exists(const char *path) {
+    /* _access accepts 0, 2, 4 or 6; Windows has no X_OK mode. */
+    struct _stat info;
+    return _access(path, 0) == 0 && _stat(path, &info) == 0 &&
+           (info.st_mode & _S_IFMT) == _S_IFREG;
+}
+
+static bool cf_windows_command_exists(char *full, size_t capacity) {
+    size_t base_len = strlen(full);
+    const char *extension = cf_path_extensions();
+    while (*extension) {
+        size_t len = strcspn(extension, ";");
+        /* Ignore empty and malformed entries, including directory separators. */
+        if (len > 1 && extension[0] == '.' &&
+            !memchr(extension, '/', len) && !memchr(extension, '\\', len)) {
+            if (base_len >= len &&
+                strncasecmp(full + base_len - len, extension, len) == 0 &&
+                cf_windows_file_exists(full)) return true;
+            if (len < capacity - base_len) {
+                memcpy(full + base_len, extension, len);
+                full[base_len + len] = '\0';
+                if (cf_windows_file_exists(full)) return true;
+                full[base_len] = '\0';
+            }
+        }
+        extension += len;
+        if (*extension == ';') extension++;
+    }
+    return false;
+}
+#endif
+
 static bool cf_scan_executable_in_path(const char *path_env, const char *name) {
     if (!path_env || !path_env[0] || !name || !name[0]) return false;
 
-    char path_copy[4096];
-    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
-    path_copy[sizeof(path_copy) - 1] = '\0';
-
-    const char *sep = ":";
 #ifdef _WIN32
-    sep = ";";
+    const char *separator = ";";
+    const char slash = '\\';
+#else
+    const char *separator = ":";
+    const char slash = '/';
 #endif
-    char *token = strtok(path_copy, sep);
-    while (token) {
+    /* Walk the original PATH so entries after 4096 bytes are still searched. */
+    const char *entry = path_env;
+    while (*entry) {
+        size_t entry_len = strcspn(entry, separator);
+        const char *directory = entry;
+        size_t directory_len = entry_len;
+#ifdef _WIN32
+        if (directory_len >= 2 && directory[0] == '"' &&
+            directory[directory_len - 1] == '"') {
+            directory++;
+            directory_len -= 2;
+        }
+#endif
         char full[4352];
-        const char *slash = "/";
+        size_t name_len = strlen(name);
+        if (directory_len && directory_len < sizeof(full) - 1 &&
+            name_len < sizeof(full) - directory_len - 1) {
+            memcpy(full, directory, directory_len);
+            full[directory_len] = slash;
+            memcpy(full + directory_len + 1, name, name_len + 1);
 #ifdef _WIN32
-        slash = "\\";
+            if (cf_windows_command_exists(full, sizeof(full))) return true;
+#else
+            struct stat info;
+            if (access(full, X_OK) == 0 && stat(full, &info) == 0 &&
+                S_ISREG(info.st_mode)) return true;
 #endif
-        if (snprintf(full, sizeof(full), "%s%s%s", token, slash, name) > 0) {
-            if (access(full, X_OK) == 0) return true;
         }
-#ifdef _WIN32
-        if (snprintf(full, sizeof(full), "%s%s%s.exe", token, slash, name) > 0) {
-            if (access(full, X_OK) == 0) return true;
-        }
-#endif
-        token = strtok(NULL, sep);
+        entry += entry_len;
+        if (*entry) entry++;
     }
-
     return false;
 }
 
@@ -199,10 +251,26 @@ bool cf_executable_in_path(const char *name) {
     const char *path_env = getenv("PATH");
     if (!path_env || !path_env[0]) return false;
 
-    if (!g_exec_cache_path_set || strcmp(g_exec_cache_path, path_env) != 0) {
+    /* Oversized environment values are searched in full without caching. */
+    bool cacheable = strlen(path_env) < sizeof(g_exec_cache_path);
+    bool environment_changed = !g_exec_cache_path_set ||
+                               strcmp(g_exec_cache_path, path_env) != 0;
+#ifdef _WIN32
+    const char *extensions = cf_path_extensions();
+    cacheable = cacheable && strlen(extensions) < sizeof(g_exec_cache_pathext);
+    environment_changed = environment_changed ||
+                          strcmp(g_exec_cache_pathext, extensions) != 0;
+#endif
+    if (!cacheable) {
         cf_exec_cache_reset();
-        strncpy(g_exec_cache_path, path_env, sizeof(g_exec_cache_path) - 1);
-        g_exec_cache_path[sizeof(g_exec_cache_path) - 1] = '\0';
+        return cf_scan_executable_in_path(path_env, name);
+    }
+    if (environment_changed) {
+        cf_exec_cache_reset();
+        strcpy(g_exec_cache_path, path_env);
+#ifdef _WIN32
+        strcpy(g_exec_cache_pathext, extensions);
+#endif
         g_exec_cache_path_set = true;
     }
 

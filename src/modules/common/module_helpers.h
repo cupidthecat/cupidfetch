@@ -16,6 +16,9 @@ bool cf_read_first_line(const char *path, char *buffer, size_t size);
 bool cf_read_ulong_file(const char *path, unsigned long *value);
 bool cf_starts_with(const char *str, const char *prefix);
 char *cf_trim_spaces(char *str);
+/* Windows: regular files with PATHEXT suffixes (default .COM;.EXE;.BAT;.CMD).
+ * POSIX: regular files with execute permission. Results are cached until PATH
+ * (or PATHEXT on Windows) changes; filesystem changes alone do not expire them. */
 bool cf_executable_in_path(const char *name);
 bool cf_run_command_first_line(const char *command, char *out, size_t out_size);
 bool cf_parse_proc_stat_cpu_line(const char *line, unsigned long long *idle_all, unsigned long long *total_all);

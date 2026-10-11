@@ -1,0 +1,65 @@
+name: Windows build and PATH tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build application and native fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gcc = (Get-Command gcc -CommandType Application -ErrorAction Stop).Source
+          & $gcc --version
+          if ($LASTEXITCODE -ne 0) { throw 'GCC version check failed' }
+          $sources = @(Get-ChildItem src -Recurse -Filter '*.c' | ForEach-Object FullName)
+          & $gcc -o cupidfetch.exe @sources libs/cupidconf.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          New-Item -ItemType Directory -Force tests/bin | Out-Null
+          & $gcc -o tests/bin/test_windows_path.exe tests/test_windows_path.c src/modules/common/module_helpers.c -O2 -Wall -std=c99 -D_WIN32_WINNT=0x0601 -Wformat -Werror=format-security -Ilibs -lws2_32
+          if ($LASTEXITCODE -ne 0) { throw 'Windows fixture build failed' }
+      - name: Run native Windows fixtures
+        shell: pwsh
+        run: |
+          & ./tests/bin/test_windows_path.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows PATH tests failed' }
+      - name: Smoke test application entry point
+        shell: pwsh
+        run: |
+          & ./cupidfetch.exe --help
+          if ($LASTEXITCODE -ne 0) { throw 'Application smoke test failed' }
+      - name: Validate isolated application JSON
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $configRoot = Join-Path $env:RUNNER_TEMP ('cupidfetch-' + [guid]::NewGuid().ToString('N'))
+          $configDir = Join-Path $configRoot 'cupidfetch'
+          New-Item -ItemType Directory $configDir | Out-Null
+          try {
+            Set-Content (Join-Path $configDir 'cupidfetch.conf') 'modules = username shell' -Encoding ascii
+            $env:XDG_CONFIG_HOME = $configRoot
+            $env:USER = 'fixture%n%s%%user'
+            $env:USERNAME = 'fallback%n%s%%user'
+            $env:ComSpec = 'C:\fixture\shell%n%s%%.exe'
+            $env:COMPUTERNAME = 'fixture%host'
+            foreach ($expectedUser in @('fixture%n%s%%user', 'fallback%n%s%%user')) {
+              $output = & ./cupidfetch.exe --json
+              if ($LASTEXITCODE -ne 0) { throw 'Application JSON run failed' }
+              $json = ($output -join "`n") | ConvertFrom-Json -AsHashtable
+              if ($json.Count -ne 3) { throw 'Expected only user_host, username and shell' }
+              if ($json.username -cne $expectedUser) { throw 'Username was not preserved literally' }
+              if ($json.shell -cne 'shell%n%s%%.exe') { throw 'Shell was not preserved literally' }
+              if ($json.user_host -cne ($expectedUser + '@fixture%host')) { throw 'User/host mismatch' }
+              Remove-Item Env:USER -ErrorAction SilentlyContinue
+            }
+          } finally {
+            Remove-Item $configRoot -Recurse -Force
+          }
