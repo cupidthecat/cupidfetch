@@ -1,1 +1,6 @@
-cupidfetch
+/cupidfetch
+/cupidfetch.exe
+/tests/bin/
+*.o
+__pycache__/
+*.pyc

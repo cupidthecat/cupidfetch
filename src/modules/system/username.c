@@ -24,7 +24,7 @@ void get_username() {
 #endif
 
     if (username != NULL && username[0] != '\0')
-        print_info("Username", username, 20, 30);
+        print_info("Username", "%s", 20, 30, username);
     else
         cupid_log(LogType_ERROR, "couldn't get username");
 }

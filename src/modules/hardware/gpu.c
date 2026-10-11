@@ -38,35 +38,6 @@ static bool read_uevent_value(
     return found;
 }
 
-static bool read_first_pci_slot_from_sys(char *slot_out, size_t slot_out_size) {
-    if (!slot_out || slot_out_size == 0) return false;
-
-    FILE *fp = popen("grep -Rsm1 '^PCI_SLOT_NAME=' /sys 2>/dev/null", "r");
-    if (!fp) return false;
-
-    char line[512] = "";
-    bool ok = fgets(line, sizeof(line), fp) != NULL;
-    pclose(fp);
-    if (!ok) return false;
-
-    char *slot = strstr(line, "PCI_SLOT_NAME=");
-    if (!slot) return false;
-
-    slot += strlen("PCI_SLOT_NAME=");
-    cf_trim_newline(slot);
-    strncpy(slot_out, slot, slot_out_size);
-    slot_out[slot_out_size - 1] = '\0';
-    return slot_out[0] != '\0';
-}
-
-static bool is_microsoft_kernel(void) {
-    char kernel_release[256] = "";
-    if (!cf_read_first_line("/proc/sys/kernel/osrelease", kernel_release, sizeof(kernel_release))) {
-        return false;
-    }
-    return cf_contains_icase(kernel_release, "microsoft");
-}
-
 void get_gpu() {
 #ifdef _WIN32
     FILE *fp = popen("wmic path win32_VideoController get name 2>nul", "r");
@@ -159,19 +130,9 @@ void get_gpu() {
         closedir(dir);
     }
 
-    if (gpu_summary[0] == '\0') {
-        if (!cf_detect_gpu_from_lspci(gpu_summary, sizeof(gpu_summary))) {
-            char pci_slot[64] = "";
-            if (read_first_pci_slot_from_sys(pci_slot, sizeof(pci_slot))) {
-                if (is_microsoft_kernel()) {
-                    snprintf(gpu_summary, sizeof(gpu_summary), "%s Microsoft Corporation Basic Render Driver", pci_slot);
-                } else {
-                    snprintf(gpu_summary, sizeof(gpu_summary), "%s", pci_slot);
-                }
-            } else {
-                return;
-            }
-        }
+    if (gpu_summary[0] == '\0' &&
+        !cf_detect_gpu_from_lspci(gpu_summary, sizeof(gpu_summary))) {
+        return;
     }
 
     print_info("GPU", "%s", 20, 30, gpu_summary);

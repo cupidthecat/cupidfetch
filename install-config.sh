@@ -4,63 +4,40 @@
 # Public domain ~ Arthur Bacci 2024
 # Edited by Frank - 2025
 
-if [ -n "${XDG_CONFIG_HOME}" ]; then
-    config="${XDG_CONFIG_HOME}"
-else
-    if [ -n "${HOME}" ]; then
-        config="$HOME/.config"
-    else
-        echo 'Please set your HOME'
-        exit 1
-    fi
-fi
-
-echo "Your config directory is $config"
-echo "Press enter to continue"
-read -r discard
-
-if [ -f "${config}/cupidfetch" ]; then
-    echo "Your ${config}/cupidfetch is a file! Please delete it to continue"
+fail() {
+    printf '%s\n' "$1" >&2
     exit 1
+}
+
+if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    config=$XDG_CONFIG_HOME
+elif [ -n "${HOME:-}" ]; then
+    config=$HOME/.config
 else
-    if [ ! -d "${config}/cupidfetch" ]; then
-        echo "mkdir ${config}/cupidfetch......"
-        mkdir -p "${config}/cupidfetch"
-    else
-        echo "Your ${config}/cupidfetch already exists"
-    fi
+    fail 'Please set HOME or XDG_CONFIG_HOME.'
 fi
 
-if [ -d "${config}/cupidfetch/cupidfetch.conf" ]; then
-    echo "Your ${config}/cupidfetch/cupidfetch.conf is a directory! Please delete it to continue"
-    exit 1
-else
-    if [ -f "${config}/cupidfetch/cupidfetch.conf" ]; then
-        echo "Your ${config}/cupidfetch/cupidfetch.conf already exists. I won't touch it."
-    else
-        if [ -f "data/cupidfetch.conf" ]; then
-            echo "Creating ${config}/cupidfetch/cupidfetch.conf from the default config in data/"
-            cp data/cupidfetch.conf "${config}/cupidfetch/cupidfetch.conf"
-        else
-            echo "No data/cupidfetch.conf found. Creating a new default config at ${config}/cupidfetch/cupidfetch.conf..."
-            cat << 'EOF' > "${config}/cupidfetch/cupidfetch.conf"
-# Default cupidfetch configuration
+destination=$config/cupidfetch/cupidfetch.conf
+printf 'Your config directory is %s\nPress enter to continue\n' "$config"
+read -r discard || fail 'Installation cancelled: no confirmation received.'
 
-# List of modules (space-separated)
-modules = hostname username distro linux_kernel uptime pkg term shell wm session ip memory cpu storage battery
-
-# Memory display settings
-memory.unit-str = MB
-memory.unit-size = 1000000
-
-# Storage display settings
-storage.unit-str = GB
-storage.unit-size = 1000000000
-EOF
-        fi
-    fi
+if [ -d "$destination" ]; then
+    fail "$destination is a directory. Please move it before installing."
+fi
+if [ -e "$destination" ] || [ -L "$destination" ]; then
+    printf '%s already exists. I will leave it unchanged.\n' "$destination"
+    exit 0
 fi
 
-echo "Done! Please run cupidfetch and it will probably find your config."
-echo "Feel free to tweak it, it's at ${config}/cupidfetch/cupidfetch.conf"
-echo "Your log is probably at ${config}/cupidfetch/log.txt"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) ||
+    fail 'Cannot find the installer directory.'
+template=$script_dir/data/cupidfetch.ini
+[ -f "$template" ] && [ -r "$template" ] ||
+    fail "Cannot read the default config: $template"
+
+mkdir -p "$config/cupidfetch" || fail "Cannot create $config/cupidfetch."
+# noclobber also protects a config created after the existence check above.
+(set -C; cat "$template" > "$destination") ||
+    fail "Cannot write $destination."
+
+printf 'Config installed at %s\n' "$destination"

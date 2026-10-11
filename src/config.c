@@ -1,6 +1,7 @@
 // File: config.c
 #include "cupidfetch.h"
 #include "cupidconf.h"  // For configuration parsing
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -75,6 +76,21 @@ static bool parse_bool_value(const char *value, bool fallback) {
     return fallback;
 }
 
+static unsigned long parse_unit_size(const char *value, unsigned long fallback) {
+    if (!value) return fallback;
+
+    /* strtoul accepts a leading minus sign; unit sizes must be positive. */
+    if (value[0] >= '0' && value[0] <= '9') {
+        char *end;
+        errno = 0;
+        unsigned long size = strtoul(value, &end, 10);
+        if (errno == 0 && *end == '\0' && size > 0) return size;
+    }
+
+    cupid_log(LogType_WARNING, "Invalid unit size: %s", value);
+    return fallback;
+}
+
 void init_g_config() {
     // Set up the default configuration.
     struct CupidConfig cfg_ = {
@@ -133,7 +149,7 @@ void load_config_file(const char* config_path, struct CupidConfig *config) {
     }
     const char *mem_unit_size_str = cupidconf_get(conf, "memory.unit-size");
     if (mem_unit_size_str) {
-        config->memory_unit_size = atol(mem_unit_size_str);
+        config->memory_unit_size = parse_unit_size(mem_unit_size_str, config->memory_unit_size);
     }
 
     /* --- Load storage settings --- */
@@ -144,7 +160,7 @@ void load_config_file(const char* config_path, struct CupidConfig *config) {
     }
     const char *stor_unit_size_str = cupidconf_get(conf, "storage.unit-size");
     if (stor_unit_size_str) {
-        config->storage_unit_size = atol(stor_unit_size_str);
+        config->storage_unit_size = parse_unit_size(stor_unit_size_str, config->storage_unit_size);
     }
 
     /* --- Load network settings --- */

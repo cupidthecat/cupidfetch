@@ -2,7 +2,29 @@
 
 #include "../src/modules/common/module_helpers.h"
 
+static int test_cpu_times(void) {
+    unsigned long long idle, total;
+    if (!cf_parse_proc_stat_cpu_line("cpu 100 20 30 400 10 2 3 5 60 10", &idle, &total) ||
+        idle != 410 || total != 570) {
+        fprintf(stderr, "guest CPU time must not be counted twice\n");
+        return 1;
+    }
+    if (!cf_parse_proc_stat_cpu_line("cpu 100 20 30 400", &idle, &total) ||
+        idle != 400 || total != 550) {
+        fprintf(stderr, "CPU time parser must accept older four-field records\n");
+        return 1;
+    }
+    if (cf_parse_proc_stat_cpu_line("cpu0 1 2 3 4", &idle, &total) ||
+        cf_parse_proc_stat_cpu_line("cpu 1 2", &idle, &total) ||
+        cf_parse_proc_stat_cpu_line(NULL, &idle, &total)) {
+        fprintf(stderr, "CPU time parser must reject invalid aggregate records\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
+    if (test_cpu_times()) return 1;
     if (cf_convert_bytes_to_unit(2048ULL, 1024UL) != 2UL) {
         fprintf(stderr, "convert 2048/1024 should be 2\n");
         return 1;

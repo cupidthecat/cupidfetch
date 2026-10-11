@@ -45,8 +45,8 @@ void get_available_storage() {
     }
 
     bool first = true;
-    char device[256], mnt_point[256], fs_type[256];
-    while (fscanf(mount_file, "%255s %255s %255s %*s %*d %*d", device, mnt_point, fs_type) == 3) {
+    const char *device, *mnt_point, *fs_type;
+    while (cf_read_storage_mount(mount_file, &device, &mnt_point, &fs_type)) {
         if (cf_should_skip_storage_mount(device, mnt_point, fs_type)) {
             continue;
         }

@@ -1,4 +1,8 @@
 #include "module_helpers.h"
+#include <limits.h>
+#ifndef _WIN32
+#include <mntent.h>
+#endif
 
 #define CF_EXEC_CACHE_CAP 64
 
@@ -249,7 +253,11 @@ static bool read_cpu_times(unsigned long long *idle_all, unsigned long long *tot
     }
     fclose(fp);
 
-    if (!cf_starts_with(line, "cpu ")) return false;
+    return cf_parse_proc_stat_cpu_line(line, idle_all, total_all);
+}
+
+bool cf_parse_proc_stat_cpu_line(const char *line, unsigned long long *idle_all, unsigned long long *total_all) {
+    if (!line || !idle_all || !total_all || !cf_starts_with(line, "cpu ")) return false;
 
     unsigned long long user = 0, nice = 0, system = 0, idle = 0;
     unsigned long long iowait = 0, irq = 0, softirq = 0, steal = 0;
@@ -263,7 +271,7 @@ static bool read_cpu_times(unsigned long long *idle_all, unsigned long long *tot
     if (fields < 4) return false;
 
     *idle_all = idle + iowait;
-    *total_all = user + nice + system + idle + iowait + irq + softirq + steal + guest + guest_nice;
+    *total_all = user + nice + system + idle + iowait + irq + softirq + steal; /* guest times are already included in user/nice. */
     return true;
 }
 
@@ -812,4 +820,92 @@ bool cf_parse_os_release_id_line(const char *line, char *id_out, size_t id_out_s
 unsigned long cf_convert_bytes_to_unit(unsigned long long bytes, unsigned long unit_size) {
     if (unit_size == 0) return 0;
     return (unsigned long)(bytes / unit_size);
+}
+
+#ifndef _WIN32
+/* getmntent decodes procfs octal escapes and consumes complete mount records. */
+bool cf_read_storage_mount(FILE *stream, const char **device, const char **mountpoint, const char **type) {
+    if (!stream || !device || !mountpoint || !type) return false;
+    struct mntent *entry = getmntent(stream);
+    if (!entry) return false;
+    *device = entry->mnt_fsname;
+    *mountpoint = entry->mnt_dir;
+    *type = entry->mnt_type;
+    return true;
+}
+#endif
+
+struct cf_cpu_core_id {
+    int package;
+    int core;
+};
+
+/* Count distinct (package, core) pairs, not the per-package "cpu cores" field.
+ * Without complete topology, leave the physical core count unknown. */
+bool cf_parse_cpuinfo(FILE *stream, char *model, size_t model_size, int *cores, int *threads) {
+    if (!stream || !model || !model_size || !cores || !threads) return false;
+    model[0] = '\0';
+    *cores = *threads = 0;
+    struct cf_cpu_core_id *ids = NULL;
+    size_t count = 0, capacity = 0;
+    int package = -1, core = -1;
+    bool processor = false, complete = true;
+    char line[512];
+    for (;;) {
+        bool have_line = fgets(line, sizeof(line), stream) != NULL;
+        char *key = have_line ? cf_trim_spaces(line) : NULL;
+        if (!have_line || !key[0]) {
+            if (processor) {
+                if (*threads == INT_MAX) { free(ids); return false; }
+                ++*threads;
+                if (package < 0 || core < 0) {
+                    complete = false;
+                } else {
+                    size_t i;
+                    for (i = 0; i < count; ++i) {
+                        if (ids[i].package == package && ids[i].core == core) break;
+                    }
+                    if (i == count) {
+                        if (count == capacity) {
+                            size_t next = capacity ? capacity * 2 : 16;
+                            if (next < capacity || next > (size_t)-1 / sizeof(*ids)) {
+                                free(ids); return false;
+                            }
+                            struct cf_cpu_core_id *grown = realloc(ids, next * sizeof(*ids));
+                            if (!grown) { free(ids); return false; }
+                            ids = grown;
+                            capacity = next;
+                        }
+                        ids[count].package = package;
+                        ids[count++].core = core;
+                    }
+                }
+            }
+            processor = false;
+            package = core = -1;
+            if (!have_line) break;
+            continue;
+        }
+        char *sep = strchr(key, ':');
+        if (!sep) continue;
+        *sep = '\0';
+        key = cf_trim_spaces(key);
+        char *value = cf_trim_spaces(sep + 1);
+        if (strcmp(key, "model name") == 0 && !model[0]) {
+            snprintf(model, model_size, "%s", value);
+        } else if (strcmp(key, "processor") == 0) {
+            processor = true;
+        } else if (strcmp(key, "physical id") == 0 || strcmp(key, "core id") == 0) {
+            char *end;
+            errno = 0;
+            long id = strtol(value, &end, 10);
+            if (errno == 0 && end != value && *end == '\0' && id >= 0 && id <= INT_MAX) {
+                if (strcmp(key, "physical id") == 0) package = (int)id;
+                else core = (int)id;
+            }
+        }
+    }
+    *cores = complete ? (int)count : 0;
+    free(ids);
+    return !ferror(stream);
 }
