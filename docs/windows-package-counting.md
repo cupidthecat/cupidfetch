@@ -51,7 +51,9 @@ escapes, failed installations, input limits and read failures where supported.
 
 The Windows workflow also runs `tests/test_windows_package_cli.ps1` against the
 real application. It replaces PATH with an owned temporary directory containing
-fake `.cmd` managers, verifies the exact command arguments and tests both
+fake `.cmd` managers. An identical copy of the application and its compiler runtime
+DLLs live in a separate owned directory so DLL loading does not depend on PATH.
+The fixture verifies the exact command arguments and tests both
 Chocolatey version paths plus invalid and failed outputs. It does not run package
 managers installed on the runner.
 

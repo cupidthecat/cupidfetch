@@ -1,6 +1,7 @@
 # Exercise only owned fake package-manager commands, never host installations.
 $ErrorActionPreference = 'Stop'
-$binary = (Resolve-Path './cupidfetch.exe').Path
+$sourceBinary = (Resolve-Path './cupidfetch.exe').Path
+$compilerDirectory = Split-Path (Get-Command gcc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $root = Join-Path $env:RUNNER_TEMP ('cupidfetch-packages-' + [guid]::NewGuid().ToString('N'))
 $oldPath = $env:PATH
 $oldExtensions = $env:PATHEXT
@@ -8,7 +9,7 @@ $oldConfig = $env:XDG_CONFIG_HOME
 $oldLocation = Get-Location
 function Assert-Count([string] $expected) {
     $output = & $binary --json
-    if ($LASTEXITCODE -ne 0) { throw 'Package CLI fixture failed to run' }
+    if ($LASTEXITCODE -ne 0) { throw "Package CLI fixture failed to run (exit $LASTEXITCODE)" }
     $json = ($output -join "`n") | ConvertFrom-Json -AsHashtable
     if ($json.package_count -cne $expected) {
         throw "Unexpected package count: $($json.package_count); expected $expected"
@@ -16,11 +17,21 @@ function Assert-Count([string] $expected) {
 }
 try {
     New-Item -ItemType Directory (Join-Path $root 'cupidfetch') -Force | Out-Null
+    $runtimeDirectory = Join-Path $root 'runtime'
+    New-Item -ItemType Directory $runtimeDirectory | Out-Null
+    $binary = Join-Path $runtimeDirectory 'cupidfetch.exe'
+    Copy-Item $sourceBinary $binary
+    # PATH isolation must not hide DLLs supplied by the compiler used above.
+    # Copy only its runtime DLLs beside the identical application binary.
+    Get-ChildItem -LiteralPath $compilerDirectory -Filter '*.dll' -File |
+        Copy-Item -Destination $runtimeDirectory
     Set-Content (Join-Path $root 'cupidfetch/cupidfetch.conf') 'modules = pkg' -Encoding ascii
     $env:XDG_CONFIG_HOME = $root
     $env:PATH = $root
     $env:PATHEXT = '.CMD'
     Set-Location $root
+    & $binary --help | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Isolated application preflight failed (exit $LASTEXITCODE)" }
     $winget = @'
 @echo off
 if not "%*"=="list --disable-interactivity" exit /b 9
