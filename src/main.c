@@ -284,6 +284,15 @@ const char* detect_linux_distro()
         return g_distro_cache;
     }
 
+#ifndef _WIN32
+    struct utsname kernel;
+    if (uname(&kernel) == 0 && strcmp(kernel.sysname, "Axiom64") == 0) {
+        snprintf(g_distro_cache, sizeof(g_distro_cache), "%s", kernel.sysname);
+        g_distro_cached = true;
+        return g_distro_cache;
+    }
+#endif
+
     if (!g_distros_loaded) {
         char defPath[PATH_MAX];
         get_definitions_file_path(defPath, sizeof(defPath));
