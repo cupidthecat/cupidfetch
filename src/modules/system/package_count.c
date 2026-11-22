@@ -235,6 +235,7 @@ void get_package_count() {
 #else
     const char* package_command = NULL;
     const char* distro = detect_linux_distro();
+    if (strcmp(distro, "Axiom64") == 0) return;
 
     #define DISTRO(shortname, longname, pkgcmd) else if(strcmp(distro, longname) == 0) {\
         package_command = pkgcmd;}
